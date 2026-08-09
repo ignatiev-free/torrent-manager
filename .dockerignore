@@ -1,0 +1,9 @@
+.git
+.gradle
+.gradle-user-home
+.idea
+build
+data
+logs
+runtime
+*.iml
