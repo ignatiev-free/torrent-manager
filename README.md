@@ -23,11 +23,12 @@ QBITTORRENT_USERNAME=replace-me
 QBITTORRENT_PASSWORD=replace-me
 APP_DIR=/absolute/path/to/torrent-manager
 TORRENT_MANAGER_DRY_RUN=true
+TZ=UTC
 ```
 
 `APP_DIR` is used only by `compose.yaml` and must contain `torrent-manager.jar`. The `.env` file, logs, runtime data, build outputs, and deployment archives are excluded from Git.
 
-Additional tuning options are documented in `src/main/resources/application.properties` and can be overridden with standard Spring Boot configuration.
+Additional tuning options are documented in `src/main/resources/application.properties` and can be overridden with standard Spring Boot configuration. Set `TZ` to an IANA time-zone name such as `Europe/Moscow` to display log times in that zone.
 
 ## Build and test
 

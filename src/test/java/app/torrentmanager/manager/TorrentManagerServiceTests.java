@@ -10,11 +10,13 @@ import org.springframework.util.unit.DataSize;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -23,6 +25,16 @@ import static org.mockito.Mockito.when;
 
 class TorrentManagerServiceTests {
     private static final Instant START = Instant.parse("2026-08-05T12:00:00Z");
+
+    @Test
+    void displaysRetryTimeInConfiguredTimeZone() {
+        QBitClient client = mock(QBitClient.class);
+        Clock moscowClock = Clock.fixed(START, ZoneId.of("Europe/Moscow"));
+        TorrentManagerService manager = manager(client, true, Duration.ofMinutes(5),
+                ManagerStateStore.noOp(), moscowClock);
+
+        assertEquals("2026-08-05 15:00:00 +03:00", manager.formatTime(START));
+    }
 
     @Test
     void stopsTorrentAfterFiveMinutesBelowThreshold() {
@@ -214,13 +226,18 @@ class TorrentManagerServiceTests {
 
     private TorrentManagerService manager(QBitClient client, boolean dryRun, Duration slowWindow,
                                           ManagerStateStore stateStore) {
+        return manager(client, dryRun, slowWindow, stateStore, Clock.fixed(START, ZoneOffset.UTC));
+    }
+
+    private TorrentManagerService manager(QBitClient client, boolean dryRun, Duration slowWindow,
+                                          ManagerStateStore stateStore, Clock clock) {
         when(client.getTransferInfo()).thenReturn(unlimited());
         var properties = new ManagerProperties(dryRun, Duration.ofMinutes(1), 5, 10,
                 slowWindow, DataSize.ofKilobytes(400), Duration.ofMinutes(15), 0.40,
                 DataSize.ofKilobytes(50), 0.80, Duration.ofMinutes(5),
                 Duration.ofMinutes(30), Duration.ofMinutes(3),
                 Path.of("build/test-state.properties"));
-        return new TorrentManagerService(client, properties, Clock.fixed(START, ZoneOffset.UTC), stateStore);
+        return new TorrentManagerService(client, properties, clock, stateStore);
     }
 
     private TransferInfo unlimited() {

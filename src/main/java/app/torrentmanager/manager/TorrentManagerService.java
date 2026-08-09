@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -27,6 +28,8 @@ import java.util.stream.Collectors;
 @Service
 public class TorrentManagerService {
     private static final Logger log = LoggerFactory.getLogger(TorrentManagerService.class);
+    private static final DateTimeFormatter LOG_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss XXX");
 
     private final QBitClient client;
     private final ManagerProperties properties;
@@ -41,7 +44,7 @@ public class TorrentManagerService {
 
     @Autowired
     public TorrentManagerService(QBitClient client, ManagerProperties properties, ManagerStateStore stateStore) {
-        this(client, properties, Clock.systemUTC(), stateStore);
+        this(client, properties, Clock.systemDefaultZone(), stateStore);
     }
 
     TorrentManagerService(QBitClient client, ManagerProperties properties, Clock clock) {
@@ -120,7 +123,7 @@ public class TorrentManagerService {
                 log.info("Торрент '{}' остановлен (причина={}, средняя скорость={} KiB/s, сиды={}/{}); "
                                 + "следующая попытка после {}",
                         torrent.name(), reason, averageKiB, torrent.connectedSeeds(), torrent.availableSeeds(),
-                        now.plus(properties.retryCooldown()));
+                        formatTime(now.plus(properties.retryCooldown())));
                 clearObservation(torrent.hash());
             }
         }
@@ -257,6 +260,10 @@ public class TorrentManagerService {
 
     private String formatLimit(long bytesPerSecond) {
         return bytesPerSecond <= 0 ? "без ограничений" : bytesPerSecond / 1024 + " KiB/s";
+    }
+
+    String formatTime(Instant instant) {
+        return LOG_TIME_FORMATTER.withZone(clock.getZone()).format(instant);
     }
 
     private record SpeedPolicy(Duration observationWindow, long thresholdBytesPerSecond) {

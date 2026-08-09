@@ -7,7 +7,7 @@ services:
     working_dir: /app
     command: ["java", "-jar", "/app/torrent-manager.jar"]
     environment:
-      TZ: Europe/Moscow
+      TZ: ${TZ:-UTC}
       SERVER_PORT: "8091"
       QBITTORRENT_URL: ${QBITTORRENT_URL:?Set QBITTORRENT_URL in .env}
       QBITTORRENT_USERNAME: ${QBITTORRENT_USERNAME:?Set QBITTORRENT_USERNAME in .env}
