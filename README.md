@@ -1,21 +1,21 @@
 # Torrent Manager
 
-Torrent Manager is a small Spring Boot service that monitors qBittorrent downloads and pauses slow torrents when the configured active-download limit is reached. It keeps a local state file so torrents paused by the service can be resumed later.
+Torrent Manager — небольшой сервис на Spring Boot, который следит за загрузками в qBittorrent и приостанавливает медленные торренты, когда достигнут заданный лимит активных загрузок. Сервис хранит состояние в локальном файле, чтобы позднее возобновлять торренты, приостановленные им самим.
 
-## Project status
+## Статус проекта
 
-Version `0.5.0` is a usable pre-1.0 release. The core management loop, qBittorrent Web API integration, persistent state, Docker packaging, and unit tests are present. Configuration and behavior may still change before `1.0.0`.
+Версия `0.5.0` — работоспособный выпуск до версии 1.0. Основной цикл управления, интеграция с qBittorrent Web API, сохранение состояния, упаковка в Docker и модульные тесты уже реализованы. До выпуска `1.0.0` конфигурация и поведение сервиса могут изменяться.
 
-The service starts in dry-run mode by default. Review the logs and configuration before allowing it to stop or resume torrents.
+По умолчанию сервис запускается в режиме имитации (`dry-run`). Проверьте журналы и конфигурацию, прежде чем разрешать ему останавливать или возобновлять торренты.
 
-## Requirements
+## Требования
 
-- Java 25, or Docker
-- qBittorrent with the Web UI enabled
+- Java 25 или Docker
+- qBittorrent с включённым веб-интерфейсом
 
-## Configuration
+## Настройка
 
-Copy `.env.example` to `.env` and replace all placeholder values:
+Скопируйте `.env.example` в `.env` и замените все значения-заглушки:
 
 ```dotenv
 QBITTORRENT_URL=http://127.0.0.1:8080
@@ -23,40 +23,43 @@ QBITTORRENT_USERNAME=replace-me
 QBITTORRENT_PASSWORD=replace-me
 APP_DIR=/absolute/path/to/torrent-manager
 TORRENT_MANAGER_DRY_RUN=true
+TORRENT_MANAGER_RETRY_COOLDOWNS=1m,2m,5m
 ```
 
-`APP_DIR` is used only by `compose.yaml` and must contain `torrent-manager.jar`. The `.env` file, logs, runtime data, build outputs, and deployment archives are excluded from Git.
+Переменная `APP_DIR` используется только в `compose.yaml` и должна указывать на каталог, содержащий `torrent-manager.jar`. Файл `.env`, журналы, рабочие данные, результаты сборки и архивы для развёртывания исключены из Git.
 
-Additional tuning options are documented in `src/main/resources/application.properties` and can be overridden with standard Spring Boot configuration.
+Дополнительные параметры описаны в `src/main/resources/application.properties`. Их можно переопределять стандартными средствами конфигурации Spring Boot.
 
-## Build and test
+`TORRENT_MANAGER_RETRY_COOLDOWNS` задаёт интервалы ожидания после последовательных остановок одного и того же торрента, выполненных менеджером. При значении `1m,2m,5m` для всех последующих попыток продолжит использоваться интервал `5m`. Поддерживаются форматы длительности Spring, например `30s`, `1m` и `2h`. Счётчики попыток сейчас хранятся в памяти и сбрасываются при перезапуске сервиса или исчезновении торрента. Сначала используйте режим имитации и проверьте журналы, прежде чем включать управление загрузками.
+
+## Сборка и тестирование
 
 ```shell
 ./gradlew test
 ./gradlew bootJar
 ```
 
-On Windows, use `gradlew.bat` instead of `./gradlew`.
+В Windows используйте `gradlew.bat` вместо `./gradlew`.
 
-## Run locally
+## Локальный запуск
 
-Set the three `QBITTORRENT_*` environment variables, then run:
+Задайте три переменные окружения `QBITTORRENT_*`, затем выполните:
 
 ```shell
 ./gradlew bootRun
 ```
 
-## Run with Docker Compose
+## Запуск с Docker Compose
 
-Build the JAR, copy it to `APP_DIR`, review `.env`, and start the service:
+Соберите JAR-файл, скопируйте его в `APP_DIR`, проверьте `.env` и запустите сервис:
 
 ```shell
 ./gradlew bootJar
 docker compose up -d
 ```
 
-Health information is available at `/actuator/health` on port `8091` when using the provided Compose configuration.
+При использовании предоставленной конфигурации Compose информация о состоянии сервиса доступна по адресу `/actuator/health` на порту `8091`.
 
-## Versioning
+## Версионирование
 
-The project follows Semantic Versioning. Releases before `1.0.0` indicate a working but evolving service; minor releases add or change functionality, and patch releases contain compatible fixes.
+Проект следует правилам семантического версионирования. Выпуски до `1.0.0` обозначают работоспособный, но развивающийся сервис: минорные версии добавляют или изменяют функциональность, а патч-версии содержат совместимые исправления.
