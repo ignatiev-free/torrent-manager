@@ -4,17 +4,24 @@ import app.torrentmanager.config.ManagerProperties;
 import app.torrentmanager.qbit.QBitClient;
 import app.torrentmanager.qbit.Torrent;
 import app.torrentmanager.qbit.TransferInfo;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.util.unit.DataSize;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -23,6 +30,44 @@ import static org.mockito.Mockito.when;
 
 class TorrentManagerServiceTests {
     private static final Instant START = Instant.parse("2026-08-05T12:00:00Z");
+
+    @Test
+    void displaysRetryTimeInConfiguredTimeZone() {
+        QBitClient client = mock(QBitClient.class);
+        Clock moscowClock = Clock.fixed(START, ZoneId.of("Europe/Moscow"));
+        TorrentManagerService manager = manager(client, true, Duration.ofMinutes(5),
+                ManagerStateStore.noOp(), moscowClock);
+
+        assertEquals("2026-08-05 15:00:00 +03:00", manager.formatTime(START));
+    }
+
+    @Test
+    void logsNewlyActiveTorrentAfterInitialSnapshot() {
+        QBitClient client = mock(QBitClient.class);
+        Torrent existing = torrent("existing", 800 * 1024, 3);
+        Torrent replacement = torrent("replacement", 800 * 1024, 3);
+        when(client.getTorrents())
+                .thenReturn(List.of(existing))
+                .thenReturn(List.of(existing, replacement));
+        TorrentManagerService manager = manager(client, true);
+        Logger logger = (Logger) LoggerFactory.getLogger(TorrentManagerService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            manager.inspectAt(START);
+            manager.inspectAt(START.plus(Duration.ofMinutes(1)));
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertEquals(1, appender.list.stream()
+                .filter(event -> event.getLevel() == Level.INFO)
+                .filter(event -> event.getFormattedMessage()
+                        .equals("Обнаружен новый активный торрент 'replacement'"))
+                .count());
+    }
 
     @Test
     void stopsTorrentAfterFiveMinutesBelowThreshold() {
@@ -214,13 +259,18 @@ class TorrentManagerServiceTests {
 
     private TorrentManagerService manager(QBitClient client, boolean dryRun, Duration slowWindow,
                                           ManagerStateStore stateStore) {
+        return manager(client, dryRun, slowWindow, stateStore, Clock.fixed(START, ZoneOffset.UTC));
+    }
+
+    private TorrentManagerService manager(QBitClient client, boolean dryRun, Duration slowWindow,
+                                          ManagerStateStore stateStore, Clock clock) {
         when(client.getTransferInfo()).thenReturn(unlimited());
         var properties = new ManagerProperties(dryRun, Duration.ofMinutes(1), 5, 10,
                 slowWindow, DataSize.ofKilobytes(400), Duration.ofMinutes(15), 0.40,
                 DataSize.ofKilobytes(50), 0.80, Duration.ofMinutes(5),
                 Duration.ofMinutes(30), Duration.ofMinutes(3),
                 Path.of("build/test-state.properties"));
-        return new TorrentManagerService(client, properties, Clock.fixed(START, ZoneOffset.UTC), stateStore);
+        return new TorrentManagerService(client, properties, clock, stateStore);
     }
 
     private TransferInfo unlimited() {

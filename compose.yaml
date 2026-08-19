@@ -7,12 +7,14 @@ services:
     working_dir: /app
     command: ["java", "-jar", "/app/torrent-manager.jar"]
     environment:
-      TZ: Europe/Moscow
+      TZ: ${TZ:-UTC}
       SERVER_PORT: "8091"
       QBITTORRENT_URL: ${QBITTORRENT_URL:?Set QBITTORRENT_URL in .env}
       QBITTORRENT_USERNAME: ${QBITTORRENT_USERNAME:?Set QBITTORRENT_USERNAME in .env}
       QBITTORRENT_PASSWORD: ${QBITTORRENT_PASSWORD:?Create a .env file with QBITTORRENT_PASSWORD}
       TORRENT_MANAGER_DRY_RUN: ${TORRENT_MANAGER_DRY_RUN:-true}
+      TORRENT_MANAGER_RETRY_COOLDOWN: ${TORRENT_MANAGER_RETRY_COOLDOWN:-20m}
+      TRAFFIC_STATS_POLL_INTERVAL: ${TRAFFIC_STATS_POLL_INTERVAL:-1m}
     volumes:
       - ${APP_DIR:?Set APP_DIR to the absolute deployment folder}/torrent-manager.jar:/app/torrent-manager.jar:ro
       - ${APP_DIR}/logs:/app/logs
