@@ -7,6 +7,8 @@ public interface QBitClient {
 
     TransferInfo getTransferInfo();
 
+    LifetimeTransferInfo getLifetimeTransferInfo();
+
     void stop(String hash);
 
     void start(String hash);

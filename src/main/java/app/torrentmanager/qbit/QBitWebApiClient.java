@@ -41,6 +41,21 @@ public class QBitWebApiClient implements QBitClient {
     }
 
     @Override
+    public LifetimeTransferInfo getLifetimeTransferInfo() {
+        QBitMainData mainData = authenticated(() -> restClient.get()
+                .uri("/api/v2/sync/maindata?rid=0")
+                .header(HttpHeaders.COOKIE, sessionCookie)
+                .retrieve()
+                .body(QBitMainData.class));
+        if (mainData == null || mainData.serverState() == null) {
+            throw new IllegalStateException("qBittorrent не вернул накопительную статистику");
+        }
+        return new LifetimeTransferInfo(
+                mainData.serverState().downloadedBytes(),
+                mainData.serverState().uploadedBytes());
+    }
+
+    @Override
     public void stop(String hash) {
         command("/api/v2/torrents/stop", hash);
     }

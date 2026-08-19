@@ -13,9 +13,11 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -27,6 +29,8 @@ import java.util.stream.Collectors;
 @Service
 public class TorrentManagerService {
     private static final Logger log = LoggerFactory.getLogger(TorrentManagerService.class);
+    private static final DateTimeFormatter LOG_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss XXX");
 
     private final QBitClient client;
     private final ManagerProperties properties;
@@ -36,12 +40,15 @@ public class TorrentManagerService {
     private final Map<String, Instant> observedSince = new HashMap<>();
     private final Map<String, Instant> noSeedsSince = new HashMap<>();
     private final Map<String, Instant> pausedByManager = new LinkedHashMap<>();
+    private final Set<String> previouslyActive = new HashSet<>();
+    private final Set<String> startedByManager = new HashSet<>();
+    private boolean activeSnapshotInitialized;
     private Long lastDownloadRateLimit;
     private Instant lastActionAt;
 
     @Autowired
     public TorrentManagerService(QBitClient client, ManagerProperties properties, ManagerStateStore stateStore) {
-        this(client, properties, Clock.systemUTC(), stateStore);
+        this(client, properties, Clock.systemDefaultZone(), stateStore);
     }
 
     TorrentManagerService(QBitClient client, ManagerProperties properties, Clock clock) {
@@ -79,6 +86,7 @@ public class TorrentManagerService {
         pausedByManager.keySet().retainAll(existingHashes);
 
         List<Torrent> active = torrents.stream().filter(Torrent::isActivelyDownloading).toList();
+        logNewlyActive(active);
         for (Torrent torrent : active) {
             record(torrent, now, policy.observationWindow());
         }
@@ -120,7 +128,7 @@ public class TorrentManagerService {
                 log.info("Торрент '{}' остановлен (причина={}, средняя скорость={} KiB/s, сиды={}/{}); "
                                 + "следующая попытка после {}",
                         torrent.name(), reason, averageKiB, torrent.connectedSeeds(), torrent.availableSeeds(),
-                        now.plus(properties.retryCooldown()));
+                        formatTime(now.plus(properties.retryCooldown())));
                 clearObservation(torrent.hash());
             }
         }
@@ -237,11 +245,26 @@ public class TorrentManagerService {
         for (String hash : eligible) {
             Torrent torrent = byHash.get(hash);
             client.start(hash);
+            startedByManager.add(hash);
             pausedByManager.remove(hash);
             stateStore.save(pausedByManager);
             log.info("Повторный запуск '{}' после периода ожидания", torrent.name());
         }
         return !eligible.isEmpty();
+    }
+
+    private void logNewlyActive(List<Torrent> active) {
+        Set<String> currentActive = active.stream().map(Torrent::hash).collect(Collectors.toSet());
+        if (activeSnapshotInitialized) {
+            active.stream()
+                    .filter(torrent -> !previouslyActive.contains(torrent.hash()))
+                    .filter(torrent -> !startedByManager.remove(torrent.hash()))
+                    .forEach(torrent -> log.info("Обнаружен новый активный торрент '{}'", torrent.name()));
+        }
+        startedByManager.retainAll(currentActive);
+        previouslyActive.clear();
+        previouslyActive.addAll(currentActive);
+        activeSnapshotInitialized = true;
     }
 
     private boolean isStoppedAndIncomplete(Torrent torrent) {
@@ -253,6 +276,10 @@ public class TorrentManagerService {
         speedHistory.remove(hash);
         observedSince.remove(hash);
         noSeedsSince.remove(hash);
+    }
+
+    String formatTime(Instant instant) {
+        return LOG_TIME_FORMATTER.withZone(clock.getZone()).format(instant);
     }
 
     private String formatLimit(long bytesPerSecond) {
