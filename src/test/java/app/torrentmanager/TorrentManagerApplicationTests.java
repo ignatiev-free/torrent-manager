@@ -8,7 +8,10 @@ import org.springframework.boot.test.context.SpringBootTest;
         "qbit.username=test-user",
         "qbit.password=test-password",
         "traffic-stats.initial-delay=1h",
-        "traffic-stats.state-file=build/test-traffic-state.properties"
+        "traffic-stats.state-file=build/test-traffic-state.properties",
+        "download-monitor.initial-delay=1h",
+        "download-monitor.state-file=build/test-download-monitor-state.properties",
+        "download-history.history-file=build/test-download-completions.json"
 })
 class TorrentManagerApplicationTests {
 
