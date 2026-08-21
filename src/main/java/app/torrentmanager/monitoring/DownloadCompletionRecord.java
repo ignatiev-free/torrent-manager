@@ -10,11 +10,20 @@ public record DownloadCompletionRecord(
         Instant completedAt,
         DeliveryStatus deliveryStatus,
         String channel,
-        int attempts,
+        Integer attempts,
         Instant nextAttemptAt,
         Instant deliveredAt,
         String lastError
 ) {
+    public DownloadCompletionRecord {
+        if (deliveryStatus == null) {
+            deliveryStatus = DeliveryStatus.NOT_CONFIGURED;
+        }
+        if (attempts == null) {
+            attempts = 0;
+        }
+    }
+
     public static DownloadCompletionRecord from(DownloadCompletedEvent event, boolean notificationsEnabled) {
         return new DownloadCompletionRecord(
                 UUID.randomUUID(),
