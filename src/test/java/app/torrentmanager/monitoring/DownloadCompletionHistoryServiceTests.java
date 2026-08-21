@@ -1,6 +1,7 @@
 package app.torrentmanager.monitoring;
 
 import app.torrentmanager.config.DownloadHistoryProperties;
+import app.torrentmanager.config.EmailNotificationProperties;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -41,10 +42,26 @@ class DownloadCompletionHistoryServiceTests {
     }
 
     @Test
+    void marksNewCompletionAsPendingWhenEmailNotificationsAreEnabled() {
+        InMemoryStore store = new InMemoryStore();
+        DownloadCompletionHistoryService service = new DownloadCompletionHistoryService(store,
+                new DownloadHistoryProperties(Path.of("unused.json"), 10),
+                new EmailNotificationProperties(true, "to@example.com",
+                        java.time.Duration.ofSeconds(30)));
+
+        service.record(event("movie", "2026-08-19T10:00:00Z"));
+
+        assertThat(service.recent(1).getFirst().deliveryStatus()).isEqualTo(DeliveryStatus.PENDING);
+        assertThat(service.recent(1).getFirst().channel()).isEqualTo("EMAIL");
+        assertThat(service.recent(1).getFirst().nextAttemptAt())
+                .isEqualTo(Instant.parse("2026-08-19T10:00:00Z"));
+    }
+
+    @Test
     void restoresExistingHistory() {
         InMemoryStore store = new InMemoryStore();
         DownloadCompletionRecord existing = DownloadCompletionRecord.from(
-                event("restored", "2026-08-19T10:00:00Z"));
+                event("restored", "2026-08-19T10:00:00Z"), false);
         store.records = new ArrayList<>(List.of(existing));
 
         assertThat(service(store, 10).recent(50)).containsExactly(existing);
@@ -52,7 +69,8 @@ class DownloadCompletionHistoryServiceTests {
 
     private DownloadCompletionHistoryService service(InMemoryStore store, int maxEntries) {
         return new DownloadCompletionHistoryService(store,
-                new DownloadHistoryProperties(Path.of("unused.json"), maxEntries));
+                new DownloadHistoryProperties(Path.of("unused.json"), maxEntries),
+                new EmailNotificationProperties(false, "", java.time.Duration.ofSeconds(30)));
     }
 
     private DownloadCompletedEvent event(String hash, String at) {

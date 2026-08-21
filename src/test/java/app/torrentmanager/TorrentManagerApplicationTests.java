@@ -11,7 +11,11 @@ import org.springframework.boot.test.context.SpringBootTest;
         "traffic-stats.state-file=build/test-traffic-state.properties",
         "download-monitor.initial-delay=1h",
         "download-monitor.state-file=build/test-download-monitor-state.properties",
-        "download-history.history-file=build/test-download-completions.json"
+        "download-history.history-file=build/test-download-completions.json",
+        "email-notifications.enabled=true",
+        "email-notifications.to=recipient@example.com",
+        "spring.mail.host=127.0.0.1",
+        "spring.mail.port=2525"
 })
 class TorrentManagerApplicationTests {
 
