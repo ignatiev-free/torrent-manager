@@ -1,6 +1,7 @@
 package app.torrentmanager.monitoring;
 
 import app.torrentmanager.config.DownloadHistoryProperties;
+import app.torrentmanager.config.EmailNotificationProperties;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -15,7 +16,8 @@ class DownloadCompletionHistoryControllerTests {
     void delegatesRequestedLimitToHistory() {
         InMemoryStore store = new InMemoryStore();
         DownloadCompletionHistoryService service = new DownloadCompletionHistoryService(store,
-                new DownloadHistoryProperties(Path.of("unused.json"), 100));
+                new DownloadHistoryProperties(Path.of("unused.json"), 100),
+                new EmailNotificationProperties(false, "", java.time.Duration.ofSeconds(30)));
         service.record(new DownloadCompletedEvent("first", "First", Instant.parse("2026-08-19T10:00:00Z")));
         service.record(new DownloadCompletedEvent("second", "Second", Instant.parse("2026-08-19T10:01:00Z")));
 
