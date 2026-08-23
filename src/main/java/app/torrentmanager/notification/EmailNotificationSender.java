@@ -1,8 +1,8 @@
 package app.torrentmanager.notification;
 
 import app.torrentmanager.config.EmailNotificationProperties;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -29,11 +29,25 @@ public class EmailNotificationSender implements NotificationSender {
 
     @Override
     public void send(NotificationMessage notification) {
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(username);
-        message.setTo(properties.to());
-        message.setSubject(notification.subject());
-        message.setText(notification.body());
-        mailSender.send(message);
+        if (notification.htmlBody() == null) {
+            org.springframework.mail.SimpleMailMessage message = new org.springframework.mail.SimpleMailMessage();
+            message.setFrom(username);
+            message.setTo(properties.to());
+            message.setSubject(notification.subject());
+            message.setText(notification.body());
+            mailSender.send(message);
+            return;
+        }
+        try {
+            jakarta.mail.internet.MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(username);
+            helper.setTo(properties.to());
+            helper.setSubject(notification.subject());
+            helper.setText(notification.body(), notification.htmlBody());
+            mailSender.send(message);
+        } catch (jakarta.mail.MessagingException exception) {
+            throw new IllegalStateException("Не удалось сформировать HTML-письмо", exception);
+        }
     }
 }

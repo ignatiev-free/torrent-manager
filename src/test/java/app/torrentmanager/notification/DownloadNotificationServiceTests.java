@@ -37,6 +37,10 @@ class DownloadNotificationServiceTests {
         ArgumentCaptor<NotificationMessage> message = ArgumentCaptor.forClass(NotificationMessage.class);
         verify(sender).send(message.capture());
         assertThat(message.getValue().subject()).isEqualTo("Загрузка завершена — Film");
+        assertThat(message.getValue().body()).contains("Общее время с очередью: 2 ч. 0 мин.",
+                "Активная загрузка, наблюдаемая менеджером: 1 ч. 0 мин.");
+        assertThat(message.getValue().htmlBody()).contains("ЗАГРУЗКА ЗАВЕРШЕНА",
+                "Общее время с очередью", "Активная загрузка (наблюдаемая)");
         verify(history).replace(org.mockito.ArgumentMatchers.eq(pending.id()), result.capture());
         assertThat(result.getValue().deliveryStatus()).isEqualTo(DeliveryStatus.DELIVERED);
         assertThat(result.getValue().attempts()).isEqualTo(1);
@@ -92,6 +96,7 @@ class DownloadNotificationServiceTests {
 
     private DownloadCompletionRecord pending(int attempts, Instant nextAttemptAt) {
         return new DownloadCompletionRecord(UUID.randomUUID(), "hash", "Film", NOW,
-                DeliveryStatus.PENDING, "EMAIL", attempts, nextAttemptAt, null, null);
+                DeliveryStatus.PENDING, "EMAIL", attempts, nextAttemptAt, null, null,
+                7200L, 3600L);
     }
 }

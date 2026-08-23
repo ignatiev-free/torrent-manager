@@ -13,8 +13,17 @@ public record DownloadCompletionRecord(
         Integer attempts,
         Instant nextAttemptAt,
         Instant deliveredAt,
-        String lastError
+        String lastError,
+        Long totalDurationSeconds,
+        Long activeDurationSeconds
 ) {
+    public DownloadCompletionRecord(UUID id, String hash, String name, Instant completedAt,
+                                    DeliveryStatus deliveryStatus, String channel, Integer attempts,
+                                    Instant nextAttemptAt, Instant deliveredAt, String lastError) {
+        this(id, hash, name, completedAt, deliveryStatus, channel, attempts, nextAttemptAt,
+                deliveredAt, lastError, null, null);
+    }
+
     public DownloadCompletionRecord {
         if (deliveryStatus == null) {
             deliveryStatus = DeliveryStatus.NOT_CONFIGURED;
@@ -35,21 +44,23 @@ public record DownloadCompletionRecord(
                 0,
                 notificationsEnabled ? event.detectedAt() : null,
                 null,
-                null);
+                null,
+                event.totalDurationSeconds(),
+                event.activeDurationSeconds());
     }
 
     public DownloadCompletionRecord delivered(Instant at) {
         return new DownloadCompletionRecord(id, hash, name, completedAt, DeliveryStatus.DELIVERED,
-                channel, attempts + 1, null, at, null);
+                channel, attempts + 1, null, at, null, totalDurationSeconds, activeDurationSeconds);
     }
 
     public DownloadCompletionRecord retry(Instant at, String error) {
         return new DownloadCompletionRecord(id, hash, name, completedAt, DeliveryStatus.PENDING,
-                channel, attempts + 1, at, null, error);
+                channel, attempts + 1, at, null, error, totalDurationSeconds, activeDurationSeconds);
     }
 
     public DownloadCompletionRecord failed(String error) {
         return new DownloadCompletionRecord(id, hash, name, completedAt, DeliveryStatus.FAILED,
-                channel, attempts + 1, null, null, error);
+                channel, attempts + 1, null, null, error, totalDurationSeconds, activeDurationSeconds);
     }
 }

@@ -12,8 +12,16 @@ public record Torrent(
         @JsonProperty("dlspeed") long downloadSpeed,
         @JsonProperty("num_seeds") int connectedSeeds,
         @JsonProperty("num_complete") int availableSeeds,
-        int priority
+        int priority,
+        @JsonProperty("added_on") long addedOn,
+        long size
 ) {
+    public Torrent(String hash, String name, String state, double progress,
+                   long downloadSpeed, int connectedSeeds, int availableSeeds, int priority) {
+        this(hash, name, state, progress, downloadSpeed, connectedSeeds, availableSeeds,
+                priority, 0, 0);
+    }
+
     public boolean isComplete() {
         return progress >= 1.0;
     }

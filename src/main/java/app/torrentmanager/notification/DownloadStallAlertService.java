@@ -112,6 +112,13 @@ public class DownloadStallAlertService {
         long active = pending.stream().filter(Torrent::isActivelyDownloading).count();
         long queued = pending.stream().filter(Torrent::isQueuedForDownload).count();
         Duration observed = Duration.between(lowSpeedSince, now);
+        String html = incidentHtml("ТРЕБУЕТСЯ ВНИМАНИЕ", "Общая скорость загрузки пропала",
+                "#dc2626", List.of(
+                        new Metric("Скорость", speed / 1024 + " KiB/s"),
+                        new Metric("Наблюдается", observed.toMinutes() + " мин."),
+                        new Metric("Активных", Long.toString(active)),
+                        new Metric("В очереди", Long.toString(queued))),
+                "Менеджер продолжает штатную ротацию. Если скорость не восстановится, проверьте qBittorrent, сеть и состояние сервера.", now);
         NotificationMessage message = new NotificationMessage(
                 "Torrent Manager: загрузки остановились",
                 """
@@ -130,7 +137,7 @@ public class DownloadStallAlertService {
                         observed.toMinutes(),
                         active,
                         queued,
-                        formatTime(now)));
+                        formatTime(now)), html);
         try {
             sender.send(message);
             alertSent = true;
@@ -144,6 +151,11 @@ public class DownloadStallAlertService {
 
     private void sendRecovery(Instant now, long speed, int pendingCount) {
         try {
+            String html = incidentHtml("РАБОТА ВОССТАНОВЛЕНА", "Скорость загрузки снова стабильна",
+                    "#16a34a", List.of(
+                            new Metric("Скорость", speed / 1024 + " KiB/s"),
+                            new Metric("Активных и ожидающих", Integer.toString(pendingCount))),
+                    "Инцидент закрыт автоматически после подтверждённого периода стабильной скорости.", now);
             sender.send(new NotificationMessage(
                     "Torrent Manager: скорость загрузки восстановилась",
                     """
@@ -152,7 +164,7 @@ public class DownloadStallAlertService {
                             Скорость: %d KiB/s
                             Незавершённых активных или ожидающих: %d
                             Время: %s
-                            """.formatted(speed / 1024, pendingCount, formatTime(now))));
+                            """.formatted(speed / 1024, pendingCount, formatTime(now)), html));
             log.info("Отправлено уведомление о восстановлении скорости: {} KiB/s", speed / 1024);
             resetIncident();
         } catch (RuntimeException exception) {
@@ -164,10 +176,13 @@ public class DownloadStallAlertService {
     private void closeIncidentWithoutPendingDownloads(Instant now) {
         if (alertSent) {
             try {
+                String html = incidentHtml("ИНЦИДЕНТ ЗАКРЫТ", "Активных загрузок больше нет",
+                        "#2563eb", List.of(new Metric("Активных и ожидающих", "0")),
+                        "После предупреждения в qBittorrent не осталось активных или ожидающих загрузок.", now);
                 sender.send(new NotificationMessage(
                         "Torrent Manager: активных загрузок больше нет",
                         "После предупреждения об остановке скорости не осталось активных или ожидающих загрузок.\n\n"
-                                + "Время: " + formatTime(now)));
+                                + "Время: " + formatTime(now), html));
             } catch (RuntimeException exception) {
                 log.error("Не удалось отправить уведомление о завершении инцидента: {}",
                         exception.getMessage(), exception);
@@ -187,4 +202,29 @@ public class DownloadStallAlertService {
         ZoneId zone = clock.getZone();
         return DATE_TIME.withZone(zone).format(instant);
     }
+
+    private String incidentHtml(String label, String title, String color, List<Metric> metrics,
+                                String description, Instant now) {
+        StringBuilder cards = new StringBuilder();
+        for (Metric metric : metrics) {
+            cards.append("<div style=\"flex:1;min-width:130px;background:#fff;border-radius:10px;padding:14px;border-top:3px solid ")
+                    .append(color).append("\"><div style=\"color:#6b7280;font-size:12px\">")
+                    .append(metric.label()).append("</div><div style=\"font-size:20px;font-weight:700;margin-top:4px\">")
+                    .append(metric.value()).append("</div></div>");
+        }
+        return """
+                <!doctype html><html lang="ru"><body style="margin:0;background:#f3f4f6;color:#111827;font-family:Arial,sans-serif">
+                <div style="max-width:620px;margin:0 auto;padding:20px 12px">
+                  <div style="background:#172033;color:#fff;border-radius:14px;padding:22px;border-bottom:4px solid %s">
+                    <div style="font-size:13px;color:#cbd5e1;font-weight:700">%s</div>
+                    <div style="font-size:21px;font-weight:700;margin-top:8px">%s</div>
+                    <div style="color:#cbd5e1;font-size:13px;margin-top:8px">%s</div>
+                  </div>
+                  <div style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap">%s</div>
+                  <div style="background:#fff;border-radius:12px;padding:16px;line-height:1.6;color:#4b5563">%s</div>
+                </div></body></html>
+                """.formatted(color, label, title, formatTime(now), cards, description);
+    }
+
+    private record Metric(String label, String value) { }
 }

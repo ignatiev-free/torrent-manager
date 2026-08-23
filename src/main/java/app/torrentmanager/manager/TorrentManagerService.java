@@ -1,5 +1,7 @@
 package app.torrentmanager.manager;
 
+import app.torrentmanager.analytics.ManagerActionEvent;
+import app.torrentmanager.analytics.ManagerActionType;
 import app.torrentmanager.config.ManagerProperties;
 import app.torrentmanager.qbit.QBitClient;
 import app.torrentmanager.qbit.Torrent;
@@ -7,6 +9,7 @@ import app.torrentmanager.qbit.TransferInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -36,6 +39,7 @@ public class TorrentManagerService {
     private final ManagerProperties properties;
     private final Clock clock;
     private final ManagerStateStore stateStore;
+    private final ApplicationEventPublisher eventPublisher;
     private final Map<String, ArrayDeque<SpeedSample>> speedHistory = new HashMap<>();
     private final Map<String, Instant> observedSince = new HashMap<>();
     private final Map<String, Instant> noSeedsSince = new HashMap<>();
@@ -48,20 +52,28 @@ public class TorrentManagerService {
     private Instant lastActionAt;
 
     @Autowired
-    public TorrentManagerService(QBitClient client, ManagerProperties properties, ManagerStateStore stateStore) {
-        this(client, properties, Clock.systemDefaultZone(), stateStore);
+    public TorrentManagerService(QBitClient client, ManagerProperties properties,
+                                 ManagerStateStore stateStore,
+                                 ApplicationEventPublisher eventPublisher) {
+        this(client, properties, Clock.systemDefaultZone(), stateStore, eventPublisher);
     }
 
     TorrentManagerService(QBitClient client, ManagerProperties properties, Clock clock) {
-        this(client, properties, clock, ManagerStateStore.noOp());
+        this(client, properties, clock, ManagerStateStore.noOp(), event -> { });
     }
 
     TorrentManagerService(QBitClient client, ManagerProperties properties, Clock clock,
                           ManagerStateStore stateStore) {
+        this(client, properties, clock, stateStore, event -> { });
+    }
+
+    TorrentManagerService(QBitClient client, ManagerProperties properties, Clock clock,
+                          ManagerStateStore stateStore, ApplicationEventPublisher eventPublisher) {
         this.client = client;
         this.properties = properties;
         this.clock = clock;
         this.stateStore = stateStore;
+        this.eventPublisher = eventPublisher;
         this.pausedByManager.putAll(stateStore.load());
     }
 
@@ -126,6 +138,8 @@ public class TorrentManagerService {
                         torrent.connectedSeeds(), torrent.availableSeeds(), torrent.state());
             } else {
                 client.stop(torrent.hash());
+                eventPublisher.publishEvent(new ManagerActionEvent(torrent.hash(), torrent.name(),
+                        ManagerActionType.STOPPED, now, torrent.progress()));
                 pausedByManager.put(torrent.hash(), now.plus(properties.retryCooldown()));
                 fairRotationCandidates.remove(torrent.hash());
                 stateStore.save(pausedByManager);
@@ -262,6 +276,9 @@ public class TorrentManagerService {
                 fairRotationCandidates.add(hash);
             }
             client.start(hash);
+            eventPublisher.publishEvent(new ManagerActionEvent(hash, torrent.name(),
+                    fairRotation ? ManagerActionType.FAIR_ROTATION : ManagerActionType.RESUMED,
+                    now, torrent.progress()));
             startedByManager.add(hash);
             pausedByManager.remove(hash);
             if (fairRotation) {

@@ -43,7 +43,8 @@ class DownloadMonitoringServiceTests {
         service.inspectAt(List.of(complete("movie")), completedAt);
         service.inspectAt(List.of(complete("movie")), completedAt.plusSeconds(60));
 
-        verify(publisher, times(1)).publishEvent(new DownloadCompletedEvent("movie", "movie", completedAt));
+        verify(publisher, times(1)).publishEvent(new DownloadCompletedEvent(
+                "movie", "movie", completedAt, 3660L, 60L));
         assertThat(store.state.torrents().get("movie").complete()).isTrue();
     }
 
@@ -57,7 +58,8 @@ class DownloadMonitoringServiceTests {
         Instant completedAt = START.plusSeconds(300);
         service(store, publisher).inspectAt(List.of(complete("movie")), completedAt);
 
-        verify(publisher).publishEvent(new DownloadCompletedEvent("movie", "movie", completedAt));
+        verify(publisher).publishEvent(new DownloadCompletedEvent(
+                "movie", "movie", completedAt, 3900L, 0L));
     }
 
     @Test
@@ -90,11 +92,13 @@ class DownloadMonitoringServiceTests {
     }
 
     private Torrent incomplete(String hash) {
-        return new Torrent(hash, hash, "downloading", 0.5, 1024, 1, 1, 1);
+        return new Torrent(hash, hash, "downloading", 0.5, 1024, 1, 1, 1,
+                START.minusSeconds(3600).getEpochSecond(), 1000);
     }
 
     private Torrent complete(String hash) {
-        return new Torrent(hash, hash, "uploading", 1.0, 0, 1, 1, 1);
+        return new Torrent(hash, hash, "uploading", 1.0, 0, 1, 1, 1,
+                START.minusSeconds(3600).getEpochSecond(), 1000);
     }
 
     private static class InMemoryStore implements DownloadMonitorStateStore {
