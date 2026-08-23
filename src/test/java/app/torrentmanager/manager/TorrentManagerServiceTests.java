@@ -108,6 +108,7 @@ class TorrentManagerServiceTests {
 
         verify(client, never()).stop("slow");
         verify(client, never()).start("slow");
+        verify(client, never()).moveToTop("slow");
     }
 
     @Test
@@ -158,7 +159,9 @@ class TorrentManagerServiceTests {
     @Test
     void doesNotRetryPausedTorrentInSameCycleAsStoppingAnotherTorrent() {
         QBitClient client = mock(QBitClient.class);
-        ManagerStateStore stateStore = stateStoreWithEligible("paused");
+        ManagerStateStore stateStore = mock(ManagerStateStore.class);
+        when(stateStore.load()).thenReturn(Map.of(
+                "paused", START.plus(Duration.ofMinutes(1))));
         List<Torrent> torrents = List.of(
                 torrent("slow", 100 * 1024, 2),
                 torrent("fast-1", 800 * 1024, 2), torrent("fast-2", 800 * 1024, 2),
@@ -175,7 +178,7 @@ class TorrentManagerServiceTests {
     }
 
     @Test
-    void givesQueuedDownloadPriorityOverPausedTorrent() {
+    void promotesEligiblePausedTorrentEvenWhenNewTorrentIsQueued() {
         QBitClient client = mock(QBitClient.class);
         ManagerStateStore stateStore = stateStoreWithEligible("paused");
         List<Torrent> torrents = List.of(
@@ -187,7 +190,52 @@ class TorrentManagerServiceTests {
 
         manager.inspectAt(START);
 
-        verify(client, never()).start("paused");
+        verify(client).moveToTop("paused");
+        verify(client).start("paused");
+    }
+
+    @Test
+    void doesNotFillAnotherFairSlotWhilePromotedTorrentIsStillQueued() {
+        QBitClient client = mock(QBitClient.class);
+        ManagerStateStore stateStore = mock(ManagerStateStore.class);
+        Map<String, Instant> paused = new java.util.LinkedHashMap<>();
+        paused.put("oldest", START.minus(Duration.ofHours(2)));
+        paused.put("next", START.minus(Duration.ofHours(1)));
+        when(stateStore.load()).thenReturn(paused);
+        when(client.getTorrents())
+                .thenReturn(List.of(queuedTorrent("new"), stoppedTorrent("oldest"), stoppedTorrent("next")))
+                .thenReturn(List.of(queuedTorrent("new"), queuedTorrent("oldest"), stoppedTorrent("next")));
+        TorrentManagerService manager = manager(client, false, Duration.ofMinutes(1), stateStore);
+
+        manager.inspectAt(START);
+        manager.inspectAt(START.plus(Duration.ofMinutes(5)));
+
+        verify(client).moveToTop("oldest");
+        verify(client).start("oldest");
+        verify(client, never()).moveToTop("next");
+        verify(client, never()).start("next");
+    }
+
+    @Test
+    void promotesOnlyConfiguredNumberOfFairRotationCandidates() {
+        QBitClient client = mock(QBitClient.class);
+        ManagerStateStore stateStore = mock(ManagerStateStore.class);
+        Map<String, Instant> paused = new java.util.LinkedHashMap<>();
+        paused.put("first", START.minus(Duration.ofHours(3)));
+        paused.put("second", START.minus(Duration.ofHours(2)));
+        paused.put("third", START.minus(Duration.ofHours(1)));
+        when(stateStore.load()).thenReturn(paused);
+        when(client.getTorrents()).thenReturn(List.of(
+                queuedTorrent("new"), stoppedTorrent("first"),
+                stoppedTorrent("second"), stoppedTorrent("third")));
+        TorrentManagerService manager = manager(client, false, Duration.ofMinutes(1),
+                stateStore, Clock.fixed(START, ZoneOffset.UTC), 2);
+
+        manager.inspectAt(START);
+
+        verify(client).moveToTop("first");
+        verify(client).moveToTop("second");
+        verify(client, never()).moveToTop("third");
     }
 
     @Test
@@ -264,11 +312,17 @@ class TorrentManagerServiceTests {
 
     private TorrentManagerService manager(QBitClient client, boolean dryRun, Duration slowWindow,
                                           ManagerStateStore stateStore, Clock clock) {
+        return manager(client, dryRun, slowWindow, stateStore, clock, 1);
+    }
+
+    private TorrentManagerService manager(QBitClient client, boolean dryRun, Duration slowWindow,
+                                          ManagerStateStore stateStore, Clock clock,
+                                          int fairRotationSlots) {
         when(client.getTransferInfo()).thenReturn(unlimited());
         var properties = new ManagerProperties(dryRun, Duration.ofMinutes(1), 5, 10,
                 slowWindow, DataSize.ofKilobytes(400), Duration.ofMinutes(15), 0.40,
                 DataSize.ofKilobytes(50), 0.80, Duration.ofMinutes(5),
-                Duration.ofMinutes(30), Duration.ofMinutes(3),
+                Duration.ofMinutes(30), fairRotationSlots, Duration.ofMinutes(3),
                 Path.of("build/test-state.properties"));
         return new TorrentManagerService(client, properties, clock, stateStore);
     }

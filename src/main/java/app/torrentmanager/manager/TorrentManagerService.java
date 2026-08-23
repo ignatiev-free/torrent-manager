@@ -42,6 +42,7 @@ public class TorrentManagerService {
     private final Map<String, Instant> pausedByManager = new LinkedHashMap<>();
     private final Set<String> previouslyActive = new HashSet<>();
     private final Set<String> startedByManager = new HashSet<>();
+    private final Set<String> fairRotationCandidates = new HashSet<>();
     private boolean activeSnapshotInitialized;
     private Long lastDownloadRateLimit;
     private Instant lastActionAt;
@@ -79,11 +80,14 @@ public class TorrentManagerService {
         handleRateLimitChange(transferInfo.downloadRateLimit(), policy);
 
         List<Torrent> torrents = client.getTorrents();
+        Map<String, Torrent> torrentsByHash = torrents.stream()
+                .collect(Collectors.toMap(Torrent::hash, torrent -> torrent));
         Set<String> existingHashes = torrents.stream().map(Torrent::hash).collect(Collectors.toSet());
         speedHistory.keySet().retainAll(existingHashes);
         observedSince.keySet().retainAll(existingHashes);
         noSeedsSince.keySet().retainAll(existingHashes);
         pausedByManager.keySet().retainAll(existingHashes);
+        fairRotationCandidates.removeIf(hash -> !isActiveOrQueued(torrentsByHash.get(hash)));
 
         List<Torrent> active = torrents.stream().filter(Torrent::isActivelyDownloading).toList();
         logNewlyActive(active);
@@ -123,6 +127,7 @@ public class TorrentManagerService {
             } else {
                 client.stop(torrent.hash());
                 pausedByManager.put(torrent.hash(), now.plus(properties.retryCooldown()));
+                fairRotationCandidates.remove(torrent.hash());
                 stateStore.save(pausedByManager);
                 lastActionAt = now;
                 log.info("Торрент '{}' остановлен (причина={}, средняя скорость={} KiB/s, сиды={}/{}); "
@@ -134,9 +139,17 @@ public class TorrentManagerService {
         }
 
         boolean hasQueuedDownloads = torrents.stream().anyMatch(Torrent::isQueuedForDownload);
-        if (!properties.dryRun() && limitedStops.isEmpty() && !hasQueuedDownloads && actionAllowed(now)) {
+        if (!properties.dryRun() && limitedStops.isEmpty() && actionAllowed(now)) {
             int genuinelyFreeSlots = Math.max(0, properties.maxActiveDownloads() - managedActive.size());
-            if (retryEligible(torrents, genuinelyFreeSlots, now)) {
+            int fairVacancies = Math.max(0,
+                    properties.fairRotationSlots() - fairRotationCandidates.size());
+            int promoted = retryEligible(torrentsByHash, fairVacancies, now, true);
+            int normallyStarted = 0;
+            if (!hasQueuedDownloads) {
+                normallyStarted = retryEligible(torrentsByHash,
+                        Math.max(0, genuinelyFreeSlots - promoted), now, false);
+            }
+            if (promoted + normallyStarted > 0) {
                 lastActionAt = now;
             }
         }
@@ -230,27 +243,40 @@ public class TorrentManagerService {
         return lastActionAt == null || !now.isBefore(lastActionAt.plus(properties.minimumActionInterval()));
     }
 
-    private boolean retryEligible(List<Torrent> torrents, int freeSlots, Instant now) {
-        if (freeSlots == 0) {
-            return false;
+    private int retryEligible(Map<String, Torrent> torrentsByHash, int slots, Instant now,
+                              boolean fairRotation) {
+        if (slots == 0) {
+            return 0;
         }
-        Map<String, Torrent> byHash = torrents.stream().collect(Collectors.toMap(Torrent::hash, torrent -> torrent));
         List<String> eligible = pausedByManager.entrySet().stream()
                 .filter(entry -> !entry.getValue().isAfter(now))
-                .filter(entry -> isStoppedAndIncomplete(byHash.get(entry.getKey())))
+                .filter(entry -> isStoppedAndIncomplete(torrentsByHash.get(entry.getKey())))
                 .sorted(Map.Entry.comparingByValue())
-                .limit(freeSlots)
+                .limit(slots)
                 .map(Map.Entry::getKey)
                 .toList();
         for (String hash : eligible) {
-            Torrent torrent = byHash.get(hash);
+            Torrent torrent = torrentsByHash.get(hash);
+            if (fairRotation) {
+                client.moveToTop(hash);
+                fairRotationCandidates.add(hash);
+            }
             client.start(hash);
             startedByManager.add(hash);
             pausedByManager.remove(hash);
-            stateStore.save(pausedByManager);
-            log.info("Повторный запуск '{}' после периода ожидания", torrent.name());
+            if (fairRotation) {
+                log.info("Выделен слот справедливой ротации для '{}' (прогресс={}%, "
+                                + "доступно слотов ротации={})",
+                        torrent.name(), Math.round(torrent.progress() * 100),
+                        properties.fairRotationSlots());
+            } else {
+                log.info("Повторный запуск '{}' после периода ожидания", torrent.name());
+            }
         }
-        return !eligible.isEmpty();
+        if (!eligible.isEmpty()) {
+            stateStore.save(pausedByManager);
+        }
+        return eligible.size();
     }
 
     private void logNewlyActive(List<Torrent> active) {
@@ -270,6 +296,11 @@ public class TorrentManagerService {
     private boolean isStoppedAndIncomplete(Torrent torrent) {
         return torrent != null && !torrent.isComplete()
                 && (torrent.state().equals("stoppedDL") || torrent.state().equals("pausedDL"));
+    }
+
+    private boolean isActiveOrQueued(Torrent torrent) {
+        return torrent != null && !torrent.isComplete()
+                && (torrent.isActivelyDownloading() || torrent.isQueuedForDownload());
     }
 
     private void clearObservation(String hash) {

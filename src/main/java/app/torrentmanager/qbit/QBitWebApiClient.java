@@ -65,6 +65,11 @@ public class QBitWebApiClient implements QBitClient {
         command("/api/v2/torrents/start", hash);
     }
 
+    @Override
+    public void moveToTop(String hash) {
+        command("/api/v2/torrents/topPrio", hash);
+    }
+
     private void command(String endpoint, String hash) {
         authenticated(() -> {
             var form = new LinkedMultiValueMap<String, String>();

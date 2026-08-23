@@ -12,4 +12,6 @@ public interface QBitClient {
     void stop(String hash);
 
     void start(String hash);
+
+    void moveToTop(String hash);
 }

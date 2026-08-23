@@ -20,6 +20,7 @@ public record ManagerProperties(
         double saturatedLimitRatio,
         Duration minimumActionInterval,
         Duration retryCooldown,
+        int fairRotationSlots,
         Duration noSeedsTimeout,
         Path stateFile
 ) {

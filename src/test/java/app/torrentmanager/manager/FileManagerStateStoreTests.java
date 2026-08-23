@@ -22,7 +22,7 @@ class FileManagerStateStoreTests {
         var properties = new ManagerProperties(true, Duration.ofMinutes(1), 5, 1,
                 Duration.ofMinutes(5), DataSize.ofKilobytes(400),
                 Duration.ofMinutes(15), 0.40, DataSize.ofKilobytes(50), 0.80,
-                Duration.ofMinutes(5), Duration.ofMinutes(30),
+                Duration.ofMinutes(5), Duration.ofMinutes(30), 1,
                 Duration.ofMinutes(3), stateFile);
         Instant retryAt = Instant.parse("2026-08-06T01:30:00Z");
 
