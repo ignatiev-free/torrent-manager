@@ -40,18 +40,29 @@ class DailyReportFormatterTests {
                         new ManagerActionEvent("hash", "Slow movie", ManagerActionType.STOPPED,
                                 NOW.minusSeconds(10), 0.99),
                         new ManagerActionEvent("hash", "Slow movie", ManagerActionType.FAIR_ROTATION,
-                                NOW.minusSeconds(5), 0.99)), Map.of("hash", 0.95));
+                                NOW.minusSeconds(5), 0.99)), Map.of("hash", 0.95),
+                storageSnapshot());
 
         assertThat(report).contains("Completed movie", "Slow movie — 99,0%",
                 "за период +4%", "активно 1 ч.", "в очереди 2 мин.",
                 "Остановлено: 1", "Возобновлено всего: 1",
                 "Из них через справедливую ротацию: 1",
-                "прогресс почти завершён и не меняется");
+                "прогресс почти завершён и не меняется",
+                "HDD1 · 10,00 ТБ", "Свободно сейчас: 3,30 ТБ",
+                "После завершения останется: 1,82 ТБ", "места достаточно");
 
         String html = formatter.formatHtml(NOW.minus(Duration.ofDays(1)), NOW,
-                List.of(completed), List.of(torrent), List.of(), Map.of("hash", 0.95));
+                List.of(completed), List.of(torrent), List.of(), Map.of("hash", 0.95),
+                storageSnapshot());
         assertThat(html).contains("<!doctype html>", "Требуют внимания", "Slow movie",
-                "за период +4%", "overflow-wrap:anywhere");
+                "за период +4%", "overflow-wrap:anywhere", "Хранилище", "HDD1");
+    }
+
+    private StorageCapacitySnapshot storageSnapshot() {
+        long tib = 1024L * 1024 * 1024 * 1024;
+        return new StorageCapacitySnapshot(true,
+                List.of(new DiskCapacity("HDD1", 10 * tib, (long) (3.3 * tib),
+                        56, (long) (1.48 * tib), 0, null)), 0, 0, null);
     }
 
     private DailyReportProperties reportProperties() {

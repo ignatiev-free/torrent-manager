@@ -31,7 +31,8 @@ public class DailyReportFormatter {
 
     public String format(Instant from, Instant to, List<DownloadCompletionRecord> completions,
                          List<TorrentAnalyticsRecord> analytics,
-                         List<ManagerActionEvent> actions, Map<String, Double> baseline) {
+                         List<ManagerActionEvent> actions, Map<String, Double> baseline,
+                         StorageCapacitySnapshot storage) {
         ZoneId zone = ZoneId.systemDefault();
         List<TorrentAnalyticsRecord> current = analytics.stream()
                 .filter(TorrentAnalyticsRecord::activeOrQueued)
@@ -52,6 +53,7 @@ public class DailyReportFormatter {
                 .append(DATE_TIME.format(to.atZone(zone))).append("\n\n");
         appendCompleted(report, completions);
         appendCurrent(report, current, baseline);
+        appendStorage(report, storage);
         report.append("Действия менеджера:\n\n")
                 .append("Остановлено: ").append(stopped).append('\n')
                 .append("Возобновлено всего: ").append(resumed).append('\n')
@@ -63,7 +65,8 @@ public class DailyReportFormatter {
     public String formatHtml(Instant from, Instant to,
                              List<DownloadCompletionRecord> completions,
                              List<TorrentAnalyticsRecord> analytics,
-                             List<ManagerActionEvent> actions, Map<String, Double> baseline) {
+                             List<ManagerActionEvent> actions, Map<String, Double> baseline,
+                             StorageCapacitySnapshot storage) {
         ZoneId zone = ZoneId.systemDefault();
         List<TorrentAnalyticsRecord> current = current(analytics);
         List<AttentionItem> attention = attentionAnalyzer.analyze(analytics, to);
@@ -112,6 +115,8 @@ public class DailyReportFormatter {
         }
         more(html, current.size() - currentLimit, "загрузок");
         sectionEnd(html);
+
+        appendStorageHtml(html, storage);
 
         sectionStart(html, "Действия менеджера", null);
         html.append("<div style=\"padding:14px 16px;line-height:1.8\">")
@@ -173,6 +178,98 @@ public class DailyReportFormatter {
             report.append("...и ещё ").append(current.size() - limit).append(" загрузок\n");
         }
         report.append('\n');
+    }
+
+    private void appendStorage(StringBuilder report, StorageCapacitySnapshot storage) {
+        if (!storage.enabled()) {
+            return;
+        }
+        report.append("Хранилище:\n\n");
+        if (storage.error() != null) {
+            report.append("Не удалось рассчитать: ").append(storage.error()).append("\n\n");
+            return;
+        }
+        for (DiskCapacity disk : storage.disks()) {
+            report.append(disk.name());
+            if (disk.available()) {
+                report.append(" · ").append(bytes(disk.totalBytes()));
+            }
+            report.append('\n');
+            if (!disk.available()) {
+                report.append("Свободное место недоступно: ").append(disk.error()).append('\n');
+            } else {
+                report.append("Свободно сейчас: ").append(bytes(disk.freeBytes())).append('\n');
+            }
+            report.append("Незавершённых торрентов: ").append(disk.incompleteTorrents()).append('\n')
+                    .append("Осталось загрузить: ").append(bytes(disk.remainingBytes())).append('\n');
+            if (disk.unknownSizeTorrents() > 0) {
+                report.append("Без метаданных: ").append(disk.unknownSizeTorrents()).append('\n');
+            }
+            if (disk.available()) {
+                if (disk.projectedFreeBytes() >= 0) {
+                    report.append("После завершения останется: ")
+                            .append(bytes(disk.projectedFreeBytes())).append('\n')
+                            .append("Статус: места достаточно\n");
+                } else {
+                    report.append("После завершения не хватит: ")
+                            .append(bytes(-disk.projectedFreeBytes())).append('\n')
+                            .append("Статус: недостаточно места\n");
+                }
+            }
+            report.append('\n');
+        }
+        if (storage.unmatchedTorrents() > 0) {
+            report.append("Не удалось сопоставить с диском: ")
+                    .append(storage.unmatchedTorrents()).append(" торрентов, ")
+                    .append(bytes(storage.unmatchedRemainingBytes())).append("\n\n");
+        }
+    }
+
+    private void appendStorageHtml(StringBuilder html, StorageCapacitySnapshot storage) {
+        if (!storage.enabled()) {
+            return;
+        }
+        sectionStart(html, "Хранилище", storage.disks().size());
+        if (storage.error() != null) {
+            row(html, "Не удалось рассчитать", escape(storage.error()), "#b91c1c");
+        } else {
+            for (DiskCapacity disk : storage.disks()) {
+                StringBuilder details = new StringBuilder();
+                if (!disk.available()) {
+                    details.append("Свободное место недоступно: ").append(escape(disk.error()));
+                } else {
+                    details.append("Свободно сейчас: <b>").append(bytes(disk.freeBytes()))
+                            .append("</b>");
+                }
+                details.append("<br>Незавершённых торрентов: <b>")
+                        .append(disk.incompleteTorrents()).append("</b>")
+                        .append(" · осталось загрузить: <b>")
+                        .append(bytes(disk.remainingBytes())).append("</b>");
+                if (disk.unknownSizeTorrents() > 0) {
+                    details.append("<br>Без метаданных: <b>")
+                            .append(disk.unknownSizeTorrents()).append("</b>");
+                }
+                String color = "#6b7280";
+                if (disk.available()) {
+                    boolean enough = disk.projectedFreeBytes() >= 0;
+                    details.append("<br>").append(enough ? "После завершения останется: "
+                                    : "После завершения не хватит: ")
+                            .append("<b>").append(bytes(Math.abs(disk.projectedFreeBytes())))
+                            .append("</b><br>Статус: <b>")
+                            .append(enough ? "места достаточно" : "недостаточно места")
+                            .append("</b>");
+                    color = enough ? "#166534" : "#b91c1c";
+                }
+                String title = disk.name() + (disk.available()
+                        ? " · " + bytes(disk.totalBytes()) : "");
+                row(html, title, details.toString(), color);
+            }
+            if (storage.unmatchedTorrents() > 0) {
+                row(html, "Не удалось сопоставить с диском: " + storage.unmatchedTorrents(),
+                        "Оставшийся объём: " + bytes(storage.unmatchedRemainingBytes()), "#b45309");
+            }
+        }
+        sectionEnd(html);
     }
 
     private List<TorrentAnalyticsRecord> current(List<TorrentAnalyticsRecord> analytics) {
@@ -274,6 +371,20 @@ public class DailyReportFormatter {
             return String.format("%.1f MiB/s", bytesPerSecond / 1024.0 / 1024.0);
         }
         return Math.round(bytesPerSecond / 1024.0) + " KiB/s";
+    }
+
+    private String bytes(long value) {
+        double absolute = Math.abs((double) value);
+        if (absolute >= 1024d * 1024 * 1024 * 1024) {
+            return String.format("%.2f ТБ", value / 1024d / 1024 / 1024 / 1024);
+        }
+        if (absolute >= 1024d * 1024 * 1024) {
+            return String.format("%.1f ГБ", value / 1024d / 1024 / 1024);
+        }
+        if (absolute >= 1024d * 1024) {
+            return String.format("%.1f МБ", value / 1024d / 1024);
+        }
+        return String.format("%.1f КБ", value / 1024d);
     }
 
     private String duration(Duration duration) {

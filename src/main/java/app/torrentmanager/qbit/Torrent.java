@@ -14,12 +14,21 @@ public record Torrent(
         @JsonProperty("num_complete") int availableSeeds,
         int priority,
         @JsonProperty("added_on") long addedOn,
-        long size
+        long size,
+        @JsonProperty("amount_left") long amountLeft,
+        @JsonProperty("save_path") String savePath
 ) {
     public Torrent(String hash, String name, String state, double progress,
                    long downloadSpeed, int connectedSeeds, int availableSeeds, int priority) {
         this(hash, name, state, progress, downloadSpeed, connectedSeeds, availableSeeds,
-                priority, 0, 0);
+                priority, 0, 0, 0, null);
+    }
+
+    public Torrent(String hash, String name, String state, double progress,
+                   long downloadSpeed, int connectedSeeds, int availableSeeds, int priority,
+                   long addedOn, long size) {
+        this(hash, name, state, progress, downloadSpeed, connectedSeeds, availableSeeds,
+                priority, addedOn, size, 0, null);
     }
 
     public boolean isComplete() {

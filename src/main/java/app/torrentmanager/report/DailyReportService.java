@@ -34,6 +34,7 @@ public class DailyReportService {
     private final DownloadCompletionHistoryService completionHistory;
     private final TorrentAnalyticsService analyticsService;
     private final ManagerActionHistoryService actionHistory;
+    private final StorageCapacityService storageCapacityService;
     private final DailyReportFormatter formatter;
     private final DailyReportStateStore stateStore;
     private final NotificationSender sender;
@@ -45,22 +46,26 @@ public class DailyReportService {
     public DailyReportService(DownloadCompletionHistoryService completionHistory,
                               TorrentAnalyticsService analyticsService,
                               ManagerActionHistoryService actionHistory,
+                              StorageCapacityService storageCapacityService,
                               DailyReportFormatter formatter,
                               DailyReportStateStore stateStore,
                               NotificationSender sender,
                               DailyReportProperties properties) {
-        this(completionHistory, analyticsService, actionHistory, formatter, stateStore,
+        this(completionHistory, analyticsService, actionHistory, storageCapacityService,
+                formatter, stateStore,
                 sender, properties, Clock.systemDefaultZone());
     }
 
     DailyReportService(DownloadCompletionHistoryService completionHistory,
                        TorrentAnalyticsService analyticsService,
                        ManagerActionHistoryService actionHistory,
+                       StorageCapacityService storageCapacityService,
                        DailyReportFormatter formatter, DailyReportStateStore stateStore,
                        NotificationSender sender, DailyReportProperties properties, Clock clock) {
         this.completionHistory = completionHistory;
         this.analyticsService = analyticsService;
         this.actionHistory = actionHistory;
+        this.storageCapacityService = storageCapacityService;
         this.formatter = formatter;
         this.stateStore = stateStore;
         this.sender = sender;
@@ -131,10 +136,11 @@ public class DailyReportService {
                 .toList();
         List<TorrentAnalyticsRecord> analytics = analyticsService.snapshot();
         List<ManagerActionEvent> actions = actionHistory.between(from, to);
+        StorageCapacitySnapshot storage = storageCapacityService.snapshot();
         String text = formatter.format(from, to, completions, analytics, actions,
-                state.progressBaseline());
+                state.progressBaseline(), storage);
         String html = formatter.formatHtml(from, to, completions, analytics, actions,
-                state.progressBaseline());
+                state.progressBaseline(), storage);
         return new NotificationMessage(subject, text, html);
     }
 

@@ -60,15 +60,17 @@ class DailyReportServiceTests {
         DownloadCompletionHistoryService completions = mock(DownloadCompletionHistoryService.class);
         TorrentAnalyticsService analytics = mock(TorrentAnalyticsService.class);
         ManagerActionHistoryService actions = mock(ManagerActionHistoryService.class);
+        StorageCapacityService storage = mock(StorageCapacityService.class);
         DailyReportFormatter formatter = mock(DailyReportFormatter.class);
         NotificationSender sender = mock(NotificationSender.class);
         InMemoryStore store = new InMemoryStore();
         when(completions.recent(1000)).thenReturn(List.of());
         when(analytics.snapshot()).thenReturn(List.of(record()));
         when(actions.between(any(), any())).thenReturn(List.of());
-        when(formatter.format(any(), any(), any(), any(), any(), any())).thenReturn("report");
+        when(storage.snapshot()).thenReturn(StorageCapacitySnapshot.disabled());
+        when(formatter.format(any(), any(), any(), any(), any(), any(), any())).thenReturn("report");
         when(sender.channel()).thenReturn("EMAIL");
-        DailyReportService service = new DailyReportService(completions, analytics, actions,
+        DailyReportService service = new DailyReportService(completions, analytics, actions, storage,
                 formatter, store, sender, properties(), Clock.fixed(NOW, ZoneOffset.UTC));
         return new Fixture(service, sender, store);
     }
