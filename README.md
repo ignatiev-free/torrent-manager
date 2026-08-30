@@ -188,17 +188,17 @@ DAILY_REPORT_TIME=09:00
 
 ```dotenv
 STORAGE_REPORT_ENABLED=true
-STORAGE_HDD1_SOURCE_PATH=/hdd1/downloads1
-STORAGE_HDD1_QBIT_PATH=/hdd1/downloads1
-STORAGE_HDD2_SOURCE_PATH=/hdd2/downloads2
-STORAGE_HDD2_QBIT_PATH=/hdd2/downloads2
+STORAGE_HDD1_SOURCE_PATH=/Volume2
+STORAGE_HDD1_QBIT_PATHS=/downloads1,/media1
+STORAGE_HDD2_SOURCE_PATH=/Volume3
+STORAGE_HDD2_QBIT_PATHS=/downloads2,/media2
 ```
 
 `STORAGE_*_SOURCE_PATH` — путь на Docker-хосте. Он монтируется в контейнер только для
-чтения, чтобы получить характеристики файловой системы. `STORAGE_*_QBIT_PATH` —
-начало пути, которое qBittorrent возвращает в поле `save_path`; оно может отличаться,
-если qBittorrent работает в другом контейнере. По умолчанию используются пути
-`/hdd1/downloads1` и `/hdd2/downloads2`.
+чтения, чтобы получить характеристики файловой системы. `STORAGE_*_QBIT_PATHS` —
+разделённые запятыми начала путей, которые qBittorrent возвращает в поле `save_path`.
+Для одного диска можно указать и каталог загрузок, и каталог медиатеки; это важно для
+торрентов, перемещённых через интерфейс qBittorrent.
 
 Расчёт предполагает, что предварительное выделение места в qBittorrent выключено.
 Торренты без полученных метаданных и торренты с путём вне настроенных дисков выводятся

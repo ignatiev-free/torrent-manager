@@ -8,7 +8,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.util.Comparator;
 import java.util.List;
 
 @Service
@@ -70,11 +69,17 @@ public class StorageCapacityService {
             return null;
         }
         String normalized = normalize(savePath);
-        return disks.stream()
-                .filter(disk -> isWithin(normalized, normalize(disk.configuration.qbitPath())))
-                .max(Comparator.comparingInt(disk -> normalize(
-                        disk.configuration.qbitPath()).length()))
-                .orElse(null);
+        Match best = null;
+        for (MutableDisk disk : disks) {
+            for (String configuredPath : disk.configuration.qbitPaths()) {
+                String root = normalize(configuredPath);
+                if (isWithin(normalized, root)
+                        && (best == null || root.length() > best.prefixLength())) {
+                    best = new Match(disk, root.length());
+                }
+            }
+        }
+        return best == null ? null : best.disk();
     }
 
     private boolean isWithin(String path, String root) {
@@ -124,4 +129,6 @@ public class StorageCapacityService {
             this.configuration = configuration;
         }
     }
+
+    private record Match(MutableDisk disk, int prefixLength) { }
 }

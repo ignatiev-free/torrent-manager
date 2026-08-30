@@ -31,7 +31,9 @@ class StorageCapacityServiceTests {
                 torrent("unknown", "metaDL", 0, 0, 0,
                         "/hdd1/downloads1/incomplete"),
                 torrent("other", "queuedDL", 0.1, 10 * GIB, 9 * GIB,
-                        "/other/path")));
+                        "/other/path"),
+                torrent("media", "stoppedDL", 0.9, 20 * GIB, 2 * GIB,
+                        "/media2/Films")));
         when(probe.read(Path.of("/storage/hdd1")))
                 .thenReturn(new FileSpaceProbe.Space(1000 * GIB, 300 * GIB));
         when(probe.read(Path.of("/storage/hdd2")))
@@ -47,7 +49,7 @@ class StorageCapacityServiceTests {
             assertThat(disk.unknownSizeTorrents()).isEqualTo(1);
             assertThat(disk.projectedFreeBytes()).isEqualTo(250 * GIB);
         });
-        assertThat(snapshot.disks().get(1).projectedFreeBytes()).isEqualTo(-60 * GIB);
+        assertThat(snapshot.disks().get(1).projectedFreeBytes()).isEqualTo(-62 * GIB);
         assertThat(snapshot.unmatchedTorrents()).isEqualTo(1);
         assertThat(snapshot.unmatchedRemainingBytes()).isEqualTo(9 * GIB);
     }
@@ -63,9 +65,9 @@ class StorageCapacityServiceTests {
     private StorageReportProperties properties(boolean enabled) {
         return new StorageReportProperties(enabled, List.of(
                 new StorageReportProperties.Disk("HDD1", Path.of("/storage/hdd1"),
-                        "/hdd1/downloads1"),
+                        List.of("/hdd1/downloads1", "/media1")),
                 new StorageReportProperties.Disk("HDD2", Path.of("/storage/hdd2"),
-                        "/hdd2/downloads2")));
+                        List.of("/hdd2/downloads2", "/media2"))));
     }
 
     private Torrent torrent(String name, String state, double progress, long size,

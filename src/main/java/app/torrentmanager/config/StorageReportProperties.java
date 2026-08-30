@@ -11,5 +11,9 @@ public record StorageReportProperties(boolean enabled, List<Disk> disks) {
         disks = disks == null ? List.of() : List.copyOf(disks);
     }
 
-    public record Disk(String name, Path mountPath, String qbitPath) { }
+    public record Disk(String name, Path mountPath, List<String> qbitPaths) {
+        public Disk {
+            qbitPaths = qbitPaths == null ? List.of() : List.copyOf(qbitPaths);
+        }
+    }
 }
