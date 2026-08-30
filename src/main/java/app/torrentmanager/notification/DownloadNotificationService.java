@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import org.springframework.web.util.HtmlUtils;
 
 @Service
 @ConditionalOnProperty(name = "email-notifications.enabled", havingValue = "true")
@@ -84,17 +85,63 @@ public class DownloadNotificationService {
     }
 
     private NotificationMessage messageFor(DownloadCompletionRecord record) {
+        String total = duration(record.totalDurationSeconds());
+        String active = duration(record.activeDurationSeconds());
         String body = """
                 Torrent Manager обнаружил завершение загрузки.
 
                 Название: %s
                 Hash: %s
                 Завершено: %s
+                Общее время с очередью: %s
+                Активная загрузка, наблюдаемая менеджером: %s
                 """.formatted(
                 record.name(),
                 record.hash(),
-                DATE_TIME.format(record.completedAt().atZone(ZoneId.systemDefault())));
-        return new NotificationMessage("Загрузка завершена — " + record.name(), body);
+                DATE_TIME.format(record.completedAt().atZone(ZoneId.systemDefault())),
+                total,
+                active);
+        String html = """
+                <!doctype html><html lang="ru"><body style="margin:0;background:#f3f4f6;color:#111827;font-family:Arial,sans-serif">
+                <div style="max-width:620px;margin:0 auto;padding:20px 12px">
+                  <div style="background:#172033;color:#fff;border-radius:14px;padding:22px;border-bottom:4px solid #16a34a">
+                    <div style="font-size:13px;color:#86efac;font-weight:700">ЗАГРУЗКА ЗАВЕРШЕНА</div>
+                    <div style="font-size:21px;font-weight:700;margin-top:8px;overflow-wrap:anywhere">%s</div>
+                  </div>
+                  <div style="display:flex;gap:8px;margin:12px 0;flex-wrap:wrap">
+                    %s%s
+                  </div>
+                  <div style="background:#fff;border-radius:12px;padding:16px;line-height:1.7">
+                    <div style="color:#6b7280;font-size:12px">Завершено</div><b>%s</b>
+                    <div style="color:#6b7280;font-size:12px;margin-top:10px">Hash</div>
+                    <div style="font-family:monospace;overflow-wrap:anywhere">%s</div>
+                  </div>
+                </div></body></html>
+                """.formatted(
+                HtmlUtils.htmlEscape(record.name()),
+                metric("Общее время с очередью", total, "#2563eb"),
+                metric("Активная загрузка (наблюдаемая)", active, "#16a34a"),
+                DATE_TIME.format(record.completedAt().atZone(ZoneId.systemDefault())),
+                HtmlUtils.htmlEscape(record.hash()));
+        return new NotificationMessage("Загрузка завершена — " + record.name(), body, html);
+    }
+
+    private String metric(String label, String value, String color) {
+        return "<div style=\"flex:1;min-width:220px;background:#fff;border-radius:10px;padding:14px;border-top:3px solid "
+                + color + "\"><div style=\"color:#6b7280;font-size:12px\">" + label
+                + "</div><div style=\"font-size:20px;font-weight:700;margin-top:4px\">" + value
+                + "</div></div>";
+    }
+
+    private String duration(Long seconds) {
+        if (seconds == null) return "Нет данных";
+        Duration duration = Duration.ofSeconds(Math.max(0, seconds));
+        long days = duration.toDays();
+        long hours = duration.minusDays(days).toHours();
+        long minutes = duration.minusDays(days).minusHours(hours).toMinutes();
+        if (days > 0) return days + " дн. " + hours + " ч.";
+        if (hours > 0) return hours + " ч. " + minutes + " мин.";
+        return Math.max(1, minutes) + " мин.";
     }
 
     private String safeError(RuntimeException exception) {

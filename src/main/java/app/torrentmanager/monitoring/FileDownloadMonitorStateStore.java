@@ -23,6 +23,9 @@ public class FileDownloadMonitorStateStore implements DownloadMonitorStateStore 
     private static final String TORRENT_PREFIX = "torrent.";
     private static final String COMPLETE_SUFFIX = ".complete";
     private static final String NAME_SUFFIX = ".name";
+    private static final String ADDED_AT_SUFFIX = ".addedAt";
+    private static final String LAST_OBSERVED_AT_SUFFIX = ".lastObservedAt";
+    private static final String ACTIVE_SECONDS_SUFFIX = ".activeSeconds";
 
     private final Path stateFile;
 
@@ -47,7 +50,10 @@ public class FileDownloadMonitorStateStore implements DownloadMonitorStateStore 
                         String hash = key.substring(TORRENT_PREFIX.length(), key.length() - COMPLETE_SUFFIX.length());
                         boolean complete = Boolean.parseBoolean(properties.getProperty(key));
                         String name = required(properties, TORRENT_PREFIX + hash + NAME_SUFFIX);
-                        torrents.put(hash, new MonitoredTorrent(name, complete));
+                        torrents.put(hash, new MonitoredTorrent(name, complete,
+                                instant(properties.getProperty(TORRENT_PREFIX + hash + ADDED_AT_SUFFIX)),
+                                instant(properties.getProperty(TORRENT_PREFIX + hash + LAST_OBSERVED_AT_SUFFIX)),
+                                longValue(properties.getProperty(TORRENT_PREFIX + hash + ACTIVE_SECONDS_SUFFIX))));
                     });
             log.info("Восстановлен мониторинг загрузок: {} торрентов", torrents.size());
             return Optional.of(new DownloadMonitorState(initializedAt, torrents));
@@ -63,6 +69,15 @@ public class FileDownloadMonitorStateStore implements DownloadMonitorStateStore 
         state.torrents().forEach((hash, torrent) -> {
             properties.setProperty(TORRENT_PREFIX + hash + NAME_SUFFIX, torrent.name());
             properties.setProperty(TORRENT_PREFIX + hash + COMPLETE_SUFFIX, Boolean.toString(torrent.complete()));
+            if (torrent.addedAt() != null) {
+                properties.setProperty(TORRENT_PREFIX + hash + ADDED_AT_SUFFIX, torrent.addedAt().toString());
+            }
+            if (torrent.lastObservedAt() != null) {
+                properties.setProperty(TORRENT_PREFIX + hash + LAST_OBSERVED_AT_SUFFIX,
+                        torrent.lastObservedAt().toString());
+            }
+            properties.setProperty(TORRENT_PREFIX + hash + ACTIVE_SECONDS_SUFFIX,
+                    Long.toString(torrent.activeSeconds()));
         });
         Path temporary = stateFile.resolveSibling(stateFile.getFileName() + ".tmp");
         try {
@@ -87,5 +102,13 @@ public class FileDownloadMonitorStateStore implements DownloadMonitorStateStore 
             throw new IllegalArgumentException("В состоянии мониторинга отсутствует поле " + key);
         }
         return value;
+    }
+
+    private Instant instant(String value) {
+        return value == null || value.isBlank() ? null : Instant.parse(value);
+    }
+
+    private long longValue(String value) {
+        return value == null || value.isBlank() ? 0 : Long.parseLong(value);
     }
 }

@@ -10,6 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,7 +53,7 @@ public class DownloadMonitoringService {
     }
 
     void inspectAt(List<Torrent> torrents, Instant now) {
-        Map<String, MonitoredTorrent> current = snapshot(torrents);
+        Map<String, MonitoredTorrent> current = snapshot(torrents, now);
         if (state == null) {
             state = new DownloadMonitorState(now, current);
             stateStore.save(state);
@@ -65,7 +66,10 @@ public class DownloadMonitoringService {
             MonitoredTorrent previous = state.torrents().get(entry.getKey());
             MonitoredTorrent observed = entry.getValue();
             if (previous != null && !previous.complete() && observed.complete()) {
-                eventPublisher.publishEvent(new DownloadCompletedEvent(entry.getKey(), observed.name(), now));
+                Long totalSeconds = observed.addedAt() == null ? null
+                        : Math.max(0, Duration.between(observed.addedAt(), now).getSeconds());
+                eventPublisher.publishEvent(new DownloadCompletedEvent(entry.getKey(), observed.name(), now,
+                        totalSeconds, observed.activeSeconds()));
             }
         }
 
@@ -73,11 +77,29 @@ public class DownloadMonitoringService {
         stateStore.save(state);
     }
 
-    private Map<String, MonitoredTorrent> snapshot(List<Torrent> torrents) {
+    private Map<String, MonitoredTorrent> snapshot(List<Torrent> torrents, Instant now) {
         Map<String, MonitoredTorrent> result = new LinkedHashMap<>();
-        torrents.forEach(torrent -> result.put(torrent.hash(),
-                new MonitoredTorrent(torrent.name(), torrent.isComplete())));
+        torrents.forEach(torrent -> {
+            MonitoredTorrent previous = state == null ? null : state.torrents().get(torrent.hash());
+            Instant addedAt = torrent.addedOn() > 0 ? Instant.ofEpochSecond(torrent.addedOn())
+                    : previous != null && previous.addedAt() != null ? previous.addedAt() : now;
+            Instant lastObserved = previous == null ? now : previous.lastObservedAt();
+            long elapsed = lastObserved == null ? 0
+                    : Math.max(0, Duration.between(lastObserved, now).getSeconds());
+            elapsed = Math.min(elapsed, 2 * 60);
+            long activeSeconds = previous == null ? 0 : previous.activeSeconds();
+            if (previous != null && isActiveDownload(previous, torrent)) {
+                activeSeconds += elapsed;
+            }
+            result.put(torrent.hash(), new MonitoredTorrent(torrent.name(), torrent.isComplete(),
+                    addedAt, now, activeSeconds));
+        });
         return result;
+    }
+
+    private boolean isActiveDownload(MonitoredTorrent previous, Torrent current) {
+        return !previous.complete() && (current.isActivelyDownloading()
+                || "uploading".equals(current.state()) || current.isComplete());
     }
 
     Optional<DownloadMonitorState> state() {

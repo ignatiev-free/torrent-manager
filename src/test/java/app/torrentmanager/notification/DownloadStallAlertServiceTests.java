@@ -39,6 +39,8 @@ class DownloadStallAlertServiceTests {
         verify(sender, times(1)).send(message.capture());
         assertThat(message.getValue().subject()).contains("загрузки остановились");
         assertThat(message.getValue().body()).contains("Наблюдается: 20 мин.");
+        assertThat(message.getValue().htmlBody()).contains("ТРЕБУЕТСЯ ВНИМАНИЕ",
+                "Общая скорость загрузки пропала", "Наблюдается");
     }
 
     @Test
