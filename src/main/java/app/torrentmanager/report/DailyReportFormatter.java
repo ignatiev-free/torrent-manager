@@ -21,6 +21,12 @@ public class DailyReportFormatter {
     private static final DateTimeFormatter DATE_TIME =
             DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
     private final DailyReportProperties properties;
+    @org.springframework.beans.factory.annotation.Autowired
+    private app.torrentmanager.settings.RuntimeSettingsService runtimeSettings;
+
+    private DailyReportProperties properties() {
+        return runtimeSettings == null ? properties : runtimeSettings.current(DailyReportProperties.class);
+    }
     private final TorrentAttentionAnalyzer attentionAnalyzer;
 
     public DailyReportFormatter(DailyReportProperties properties,
@@ -101,7 +107,7 @@ public class DailyReportFormatter {
         sectionEnd(html);
 
         sectionStart(html, "Сейчас в загрузке или очереди", current.size());
-        int currentLimit = Math.min(current.size(), properties.maxCurrentItems());
+        int currentLimit = Math.min(current.size(), properties().maxCurrentItems());
         for (int index = 0; index < currentLimit; index++) {
             TorrentAnalyticsRecord record = current.get(index);
             Double previous = baseline.get(record.hash());
@@ -129,7 +135,7 @@ public class DailyReportFormatter {
         if (attention.isEmpty()) {
             empty(html, "Подозрительных торрентов нет");
         } else {
-            int attentionLimit = Math.min(attention.size(), properties.maxAttentionItems());
+            int attentionLimit = Math.min(attention.size(), properties().maxAttentionItems());
             for (int index = 0; index < attentionLimit; index++) {
                 AttentionItem item = attention.get(index);
                 String details = percent(item.progress()) + " · " + escape(item.reason())
@@ -160,7 +166,7 @@ public class DailyReportFormatter {
                                Map<String, Double> baseline) {
         report.append("На данный момент в загрузке или очереди: ")
                 .append(current.size()).append("\n\n");
-        int limit = Math.min(current.size(), properties.maxCurrentItems());
+        int limit = Math.min(current.size(), properties().maxCurrentItems());
         for (int index = 0; index < limit; index++) {
             TorrentAnalyticsRecord record = current.get(index);
             Double previous = baseline.get(record.hash());
@@ -329,7 +335,7 @@ public class DailyReportFormatter {
             report.append("Нет.\n");
             return;
         }
-        int limit = Math.min(attention.size(), properties.maxAttentionItems());
+        int limit = Math.min(attention.size(), properties().maxAttentionItems());
         for (int index = 0; index < limit; index++) {
             AttentionItem item = attention.get(index);
             report.append(index + 1).append(". ").append(item.name())

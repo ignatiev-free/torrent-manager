@@ -1,0 +1,17 @@
+# Optional: docker compose -f compose.yaml -f compose.storage.yaml up -d
+# These paths belong to the Docker VM, where the OMV shares must already be mounted.
+services:
+  torrent-manager:
+    volumes:
+      - type: bind
+        source: ${STORAGE_HDD1_SOURCE_PATH:?Set the existing media mount on the Docker VM}
+        target: /storage/hdd1
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${STORAGE_HDD2_SOURCE_PATH:?Set the existing media mount on the Docker VM}
+        target: /storage/hdd2
+        read_only: true
+        bind:
+          create_host_path: false

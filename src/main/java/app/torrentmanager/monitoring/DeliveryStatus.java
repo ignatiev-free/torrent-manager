@@ -4,5 +4,6 @@ public enum DeliveryStatus {
     NOT_CONFIGURED,
     PENDING,
     DELIVERED,
-    FAILED
+    FAILED,
+    SUPPRESSED
 }

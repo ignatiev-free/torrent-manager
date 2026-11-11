@@ -1,0 +1,61 @@
+# Docker VM deployment using the existing OpenMediaVault NFS volumes.
+# The absolute JAR path also works from Portainer's stack working directory.
+services:
+  torrent-manager:
+    image: eclipse-temurin:25-jre
+    container_name: torrent-manager
+    restart: unless-stopped
+    network_mode: host
+    user: "1000:1000"
+    working_dir: /app
+    command: ["java", "-Xms64m", "-Xmx256m", "-jar", "/app/torrent-manager.jar"]
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/192.168.31.63/8091 &&
+          printf 'GET /actuator/health HTTP/1.0\r\nHost: 192.168.31.63\r\n\r\n' >&3 &&
+          IFS= read -r status <&3 && [[ "$$status" == *" 200 "* ]]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      TZ: Europe/Moscow
+      SERVER_ADDRESS: 192.168.31.63
+      SERVER_PORT: "8091"
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/app/config/bootstrap.properties
+    volumes:
+      - /opt/stacks/torrent-manager/torrent-manager.jar:/app/torrent-manager.jar:ro
+      - /opt/appdata/torrent-manager/config:/app/config:ro
+      - /opt/appdata/torrent-manager/data:/app/data
+      - /opt/appdata/torrent-manager/logs:/app/logs
+      - type: volume
+        source: media1
+        target: /storage/hdd1
+        read_only: true
+      - type: volume
+        source: media2
+        target: /storage/hdd2
+        read_only: true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  media1:
+    external: true
+    name: omv_media1
+  media2:
+    external: true
+    name: omv_media2

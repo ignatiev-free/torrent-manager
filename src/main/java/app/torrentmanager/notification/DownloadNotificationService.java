@@ -5,7 +5,6 @@ import app.torrentmanager.monitoring.DownloadCompletionHistoryService;
 import app.torrentmanager.monitoring.DownloadCompletionRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -19,7 +18,6 @@ import java.util.List;
 import org.springframework.web.util.HtmlUtils;
 
 @Service
-@ConditionalOnProperty(name = "email-notifications.enabled", havingValue = "true")
 public class DownloadNotificationService {
     private static final Logger log = LoggerFactory.getLogger(DownloadNotificationService.class);
     private static final int MAX_ATTEMPTS = 5;
@@ -32,6 +30,12 @@ public class DownloadNotificationService {
     private final DownloadCompletionHistoryService history;
     private final NotificationSender sender;
     private final EmailNotificationProperties properties;
+    @org.springframework.beans.factory.annotation.Autowired
+    private app.torrentmanager.settings.RuntimeSettingsService runtimeSettings;
+
+    private EmailNotificationProperties properties() {
+        return runtimeSettings == null ? properties : runtimeSettings.current(EmailNotificationProperties.class);
+    }
     private final Clock clock;
 
     @Autowired
@@ -53,7 +57,7 @@ public class DownloadNotificationService {
 
     @Scheduled(fixedDelayString = "${email-notifications.worker-interval:30s}")
     public void deliverPending() {
-        if (!properties.enabled()) {
+        if (!properties().enabled() || (runtimeSettings != null && !runtimeSettings.notificationsAllowed())) {
             return;
         }
 
@@ -67,6 +71,8 @@ public class DownloadNotificationService {
             history.replace(record.id(), record.delivered(now));
             log.info("Уведомление о завершении загрузки отправлено: '{}' (канал={})",
                     record.name(), sender.channel());
+        } catch (EmailNotificationSender.NotificationsSuppressedException exception) {
+            history.replace(record.id(), record.suppressed());
         } catch (RuntimeException exception) {
             int attempt = record.attempts() + 1;
             String error = safeError(exception);

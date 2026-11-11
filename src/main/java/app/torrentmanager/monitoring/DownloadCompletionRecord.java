@@ -63,4 +63,9 @@ public record DownloadCompletionRecord(
         return new DownloadCompletionRecord(id, hash, name, completedAt, DeliveryStatus.FAILED,
                 channel, attempts + 1, null, null, error, totalDurationSeconds, activeDurationSeconds);
     }
+
+    public DownloadCompletionRecord suppressed() {
+        return new DownloadCompletionRecord(id, hash, name, completedAt, DeliveryStatus.SUPPRESSED,
+                channel, attempts, null, null, null, totalDurationSeconds, activeDurationSeconds);
+    }
 }

@@ -15,6 +15,12 @@ public class StorageCapacityService {
     private static final Logger log = LoggerFactory.getLogger(StorageCapacityService.class);
     private final QBitClient qbit;
     private final StorageReportProperties properties;
+    @org.springframework.beans.factory.annotation.Autowired
+    private app.torrentmanager.settings.RuntimeSettingsService runtimeSettings;
+
+    private StorageReportProperties properties() {
+        return runtimeSettings == null ? properties : runtimeSettings.current(StorageReportProperties.class);
+    }
     private final FileSpaceProbe fileSpaceProbe;
 
     public StorageCapacityService(QBitClient qbit, StorageReportProperties properties,
@@ -25,17 +31,17 @@ public class StorageCapacityService {
     }
 
     public StorageCapacitySnapshot snapshot() {
-        if (!properties.enabled()) {
+        if (!properties().enabled()) {
             return StorageCapacitySnapshot.disabled();
         }
-        if (properties.disks().isEmpty()) {
+        if (properties().disks().isEmpty()) {
             return StorageCapacitySnapshot.failed("диски не настроены");
         }
         try {
             List<Torrent> incomplete = qbit.getTorrents().stream()
                     .filter(torrent -> !torrent.isComplete())
                     .toList();
-            List<MutableDisk> disks = properties.disks().stream()
+            List<MutableDisk> disks = properties().disks().stream()
                     .map(MutableDisk::new)
                     .toList();
             int unmatched = 0;
@@ -83,7 +89,7 @@ public class StorageCapacityService {
     }
 
     private boolean isWithin(String path, String root) {
-        return path.equals(root) || path.startsWith(root + "/");
+        return path.equals(root) || (root.equals("/") ? path.startsWith("/") : path.startsWith(root + "/"));
     }
 
     private String normalize(String path) {

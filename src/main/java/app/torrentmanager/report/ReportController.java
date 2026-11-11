@@ -1,7 +1,6 @@
 package app.torrentmanager.report;
 
 import app.torrentmanager.config.DailyReportProperties;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -18,11 +17,15 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/reports")
-@ConditionalOnProperty(name = {"daily-report.enabled", "email-notifications.enabled"},
-        havingValue = "true")
 public class ReportController {
     private final DailyReportService reportService;
     private final DailyReportProperties properties;
+    @org.springframework.beans.factory.annotation.Autowired
+    private app.torrentmanager.settings.RuntimeSettingsService runtimeSettings;
+
+    private DailyReportProperties properties() {
+        return runtimeSettings == null ? properties : runtimeSettings.current(DailyReportProperties.class);
+    }
 
     public ReportController(DailyReportService reportService, DailyReportProperties properties) {
         this.reportService = reportService;
@@ -37,7 +40,7 @@ public class ReportController {
     @PostMapping("/send")
     public Map<String, String> send(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
-        if (!properties.manualEnabled()) {
+        if (!properties().manualEnabled()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
         verifyToken(authorization);
@@ -51,7 +54,7 @@ public class ReportController {
     }
 
     private void verifyToken(String authorization) {
-        String expected = "Bearer " + properties.manualToken();
+        String expected = "Bearer " + properties().manualToken();
         if (authorization == null || !MessageDigest.isEqual(
                 expected.getBytes(StandardCharsets.UTF_8),
                 authorization.getBytes(StandardCharsets.UTF_8))) {

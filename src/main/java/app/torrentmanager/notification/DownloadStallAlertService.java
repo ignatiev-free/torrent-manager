@@ -7,7 +7,6 @@ import app.torrentmanager.qbit.TransferInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -19,9 +18,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Service
-@ConditionalOnProperty(
-        name = {"email-notifications.enabled", "download-stall-alert.enabled"},
-        havingValue = "true")
 public class DownloadStallAlertService {
     private static final Logger log = LoggerFactory.getLogger(DownloadStallAlertService.class);
     private static final DateTimeFormatter DATE_TIME =
@@ -30,6 +26,12 @@ public class DownloadStallAlertService {
     private final QBitClient client;
     private final NotificationSender sender;
     private final DownloadStallAlertProperties properties;
+    @org.springframework.beans.factory.annotation.Autowired
+    private app.torrentmanager.settings.RuntimeSettingsService runtimeSettings;
+
+    private DownloadStallAlertProperties properties() {
+        return runtimeSettings == null ? properties : runtimeSettings.current(DownloadStallAlertProperties.class);
+    }
     private final Clock clock;
 
     private Instant lowSpeedSince;
@@ -57,6 +59,10 @@ public class DownloadStallAlertService {
             fixedDelayString = "${download-stall-alert.poll-interval:1m}",
             initialDelayString = "${download-stall-alert.initial-delay:2m}")
     public void inspect() {
+        if (!properties().enabled() || (runtimeSettings != null && !runtimeSettings.notificationsAllowed())) {
+            resetIncident();
+            return;
+        }
         try {
             inspectAt(client.getTransferInfo(), client.getTorrents(), clock.instant());
         } catch (RuntimeException exception) {
@@ -77,14 +83,14 @@ public class DownloadStallAlertService {
         }
 
         long speed = transferInfo.downloadSpeed();
-        if (speed <= properties.zeroSpeedThreshold().toBytes()) {
+        if (speed <= properties().zeroSpeedThreshold().toBytes()) {
             recoverySince = null;
             if (lowSpeedSince == null) {
                 lowSpeedSince = now;
                 log.warn("Обнаружена общая низкая скорость загрузок: {} KiB/s; наблюдение начато",
                         speed / 1024);
             }
-            if (!alertSent && !now.isBefore(lowSpeedSince.plus(properties.alertAfter()))) {
+            if (!alertSent && !now.isBefore(lowSpeedSince.plus(properties().alertAfter()))) {
                 sendStallAlert(now, speed, pending);
             }
             return;
@@ -95,7 +101,7 @@ public class DownloadStallAlertService {
             return;
         }
 
-        if (speed < properties.recoverySpeed().toBytes()) {
+        if (speed < properties().recoverySpeed().toBytes()) {
             recoverySince = null;
             return;
         }
@@ -103,7 +109,7 @@ public class DownloadStallAlertService {
         if (recoverySince == null) {
             recoverySince = now;
         }
-        if (!now.isBefore(recoverySince.plus(properties.recoveryWindow()))) {
+        if (!now.isBefore(recoverySince.plus(properties().recoveryWindow()))) {
             sendRecovery(now, speed, pending.size());
         }
     }

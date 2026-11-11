@@ -6,7 +6,6 @@ import app.torrentmanager.qbit.Torrent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -21,7 +20,6 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-@ConditionalOnProperty(name = "torrent-analytics.enabled", havingValue = "true", matchIfMissing = true)
 public class TorrentAnalyticsService {
     private static final Logger log = LoggerFactory.getLogger(TorrentAnalyticsService.class);
     private final QBitClient client;
@@ -48,6 +46,7 @@ public class TorrentAnalyticsService {
     @Scheduled(fixedDelayString = "${torrent-analytics.poll-interval:1m}",
             initialDelayString = "${torrent-analytics.initial-delay:5s}")
     public void inspect() {
+        if (!properties.enabled()) return;
         try {
             inspectAt(client.getTorrents(), clock.instant());
         } catch (RuntimeException exception) {

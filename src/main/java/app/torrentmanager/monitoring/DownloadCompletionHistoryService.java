@@ -18,6 +18,8 @@ public class DownloadCompletionHistoryService {
     private final int maxEntries;
     private final boolean notificationsEnabled;
     private final List<DownloadCompletionRecord> records;
+    @org.springframework.beans.factory.annotation.Autowired
+    private app.torrentmanager.settings.RuntimeSettingsService runtimeSettings;
 
     public DownloadCompletionHistoryService(DownloadCompletionHistoryStore store,
                                             DownloadHistoryProperties properties,
@@ -31,12 +33,24 @@ public class DownloadCompletionHistoryService {
 
     @EventListener
     public synchronized void record(DownloadCompletedEvent event) {
-        records.add(DownloadCompletionRecord.from(event, notificationsEnabled));
+        boolean allowed = runtimeSettings == null ? notificationsEnabled : runtimeSettings.notificationsAllowed();
+        records.add(DownloadCompletionRecord.from(event, allowed));
         trimToLimit();
         store.save(records);
     }
 
     public synchronized Optional<DownloadCompletionRecord> nextPending(Instant now) {
+        if (runtimeSettings != null) {
+            String cutoff = runtimeSettings.value("control.notifications-suppressed-before");
+            if (!cutoff.isBlank()) {
+                Instant before = Instant.parse(cutoff);
+                boolean changed = records.stream().anyMatch(r -> r.deliveryStatus() == DeliveryStatus.PENDING && !r.completedAt().isAfter(before));
+                if (changed) {
+                    records.replaceAll(r -> r.deliveryStatus() == DeliveryStatus.PENDING && !r.completedAt().isAfter(before) ? r.suppressed() : r);
+                    store.save(records);
+                }
+            }
+        }
         return records.stream()
                 .filter(record -> record.deliveryStatus() == DeliveryStatus.PENDING)
                 .filter(record -> record.nextAttemptAt() == null || !record.nextAttemptAt().isAfter(now))
@@ -65,5 +79,12 @@ public class DownloadCompletionHistoryService {
         if (records.size() > maxEntries) {
             records.subList(0, records.size() - maxEntries).clear();
         }
+    }
+
+    @EventListener
+    public synchronized void settingsChanged(app.torrentmanager.settings.RuntimeSettingsService.SettingsChanged event) {
+        if (!event.suppressNotifications()) return;
+        records.replaceAll(record -> record.deliveryStatus() == DeliveryStatus.PENDING ? record.suppressed() : record);
+        store.save(records);
     }
 }

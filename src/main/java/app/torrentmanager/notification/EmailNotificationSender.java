@@ -1,53 +1,56 @@
 package app.torrentmanager.notification;
 
-import app.torrentmanager.config.EmailNotificationProperties;
-import org.springframework.mail.javamail.JavaMailSender;
+import app.torrentmanager.settings.RuntimeSettingsService;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnProperty(name = "email-notifications.enabled", havingValue = "true")
 public class EmailNotificationSender implements NotificationSender {
-    private final JavaMailSender mailSender;
-    private final EmailNotificationProperties properties;
-    private final String username;
+    private final RuntimeSettingsService settings;
+    public EmailNotificationSender(RuntimeSettingsService settings) { this.settings = settings; }
+    @Override public String channel() { return "EMAIL"; }
 
-    public EmailNotificationSender(JavaMailSender mailSender,
-                                   EmailNotificationProperties properties,
-                                   @Value("${spring.mail.username}") String username) {
-        this.mailSender = mailSender;
-        this.properties = properties;
-        this.username = username;
+    public JavaMailSenderImpl configuredSender() {
+        var values = settings.valuesSnapshot();
+        JavaMailSenderImpl sender = new JavaMailSenderImpl();
+        sender.setHost(values.get("spring.mail.host"));
+        sender.setPort(Integer.parseInt(values.get("spring.mail.port")));
+        sender.setUsername(values.get("spring.mail.username"));
+        sender.setPassword(values.get("spring.mail.password"));
+        var properties = sender.getJavaMailProperties();
+        properties.setProperty("mail.smtp.auth", "true");
+        properties.setProperty("mail.smtp.ssl.enable", settings.value("spring.mail.properties.mail.smtp.ssl.enable"));
+        properties.setProperty("mail.smtp.starttls.enable", settings.value("spring.mail.properties.mail.smtp.starttls.enable"));
+        properties.setProperty("mail.smtp.starttls.required", settings.value("spring.mail.properties.mail.smtp.starttls.enable"));
+        properties.setProperty("mail.smtp.connectiontimeout", "5000");
+        properties.setProperty("mail.smtp.timeout", "10000");
+        properties.setProperty("mail.smtp.writetimeout", "10000");
+        return sender;
     }
 
-    @Override
-    public String channel() {
-        return "EMAIL";
-    }
+    public void testConnection() throws jakarta.mail.MessagingException { configuredSender().testConnection(); }
 
-    @Override
-    public void send(NotificationMessage notification) {
-        if (notification.htmlBody() == null) {
-            org.springframework.mail.SimpleMailMessage message = new org.springframework.mail.SimpleMailMessage();
-            message.setFrom(username);
-            message.setTo(properties.to());
-            message.setSubject(notification.subject());
-            message.setText(notification.body());
-            mailSender.send(message);
-            return;
-        }
+    @Override public void send(NotificationMessage notification) {
+        if (!settings.notificationsAllowed()) throw new NotificationsSuppressedException();
+        var sender = configuredSender();
+        if (sender.getHost() == null || sender.getHost().isBlank() || sender.getUsername() == null
+                || sender.getUsername().isBlank()) throw new IllegalStateException("Настройте SMTP-сервер и отправителя");
         try {
-            jakarta.mail.internet.MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            helper.setFrom(username);
-            helper.setTo(properties.to());
+            var message = sender.createMimeMessage();
+            var helper = new MimeMessageHelper(message, true, "UTF-8");
+            helper.setFrom(sender.getUsername());
+            helper.setTo(settings.current(app.torrentmanager.config.EmailNotificationProperties.class).to());
             helper.setSubject(notification.subject());
-            helper.setText(notification.body(), notification.htmlBody());
-            mailSender.send(message);
+            if (notification.htmlBody() == null) helper.setText(notification.body());
+            else helper.setText(notification.body(), notification.htmlBody());
+            sender.send(message);
         } catch (jakarta.mail.MessagingException exception) {
-            throw new IllegalStateException("Не удалось сформировать HTML-письмо", exception);
+            throw new IllegalStateException("Не удалось сформировать письмо", exception);
         }
+    }
+
+    public static class NotificationsSuppressedException extends RuntimeException {
+        public NotificationsSuppressedException() { super("Уведомления выключены или временно заглушены"); }
     }
 }

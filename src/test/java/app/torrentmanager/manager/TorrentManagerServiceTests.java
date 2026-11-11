@@ -32,6 +32,33 @@ class TorrentManagerServiceTests {
     private static final Instant START = Instant.parse("2026-08-05T12:00:00Z");
 
     @Test
+    void usesLiveQbitQueueLimitInsteadOfItsBootstrapLimit() {
+        QBitClient client = mock(QBitClient.class);
+        TorrentManagerService manager = manager(client, false);
+        ManagerProperties initial = (ManagerProperties) org.springframework.test.util.ReflectionTestUtils.getField(manager, "properties");
+        var settings = mock(app.torrentmanager.settings.RuntimeSettingsService.class);
+        when(settings.managerEnabled()).thenReturn(true);
+        when(settings.current(ManagerProperties.class)).thenReturn(initial);
+        org.springframework.test.util.ReflectionTestUtils.setField(manager, "runtimeSettings", settings);
+        when(client.getQueuePreferences()).thenReturn(new app.torrentmanager.qbit.QueuePreferences(true, 2, 10, 12, false, 0, 0, 0, 0, false));
+        when(client.getTorrents()).thenReturn(List.of(torrent("a", 900000, 3), torrent("b", 1000000, 3), torrent("c", 1100000, 3)));
+        manager.inspectAt(START);
+        manager.inspectAt(START.plus(Duration.ofMinutes(5)));
+        verify(client).stop("a");
+    }
+
+    @Test
+    void pausingManagerPreventsAllQbitCalls() {
+        QBitClient client = mock(QBitClient.class);
+        TorrentManagerService manager = manager(client, false);
+        var settings = mock(app.torrentmanager.settings.RuntimeSettingsService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(manager, "runtimeSettings", settings);
+        manager.inspectAt(START);
+        verify(client, never()).getQueuePreferences();
+        verify(client, never()).getTorrents();
+    }
+
+    @Test
     void displaysRetryTimeInConfiguredTimeZone() {
         QBitClient client = mock(QBitClient.class);
         Clock moscowClock = Clock.fixed(START, ZoneId.of("Europe/Moscow"));

@@ -13,13 +13,69 @@ import java.util.List;
 
 @Component
 public class QBitWebApiClient implements QBitClient {
-    private final RestClient restClient;
-    private final QBitProperties properties;
+    private RestClient restClient;
+    private QBitProperties properties;
+    private final RestClient.Builder builder;
+    @org.springframework.beans.factory.annotation.Autowired
+    private app.torrentmanager.settings.RuntimeSettingsService runtimeSettings;
     private volatile String sessionCookie;
 
     public QBitWebApiClient(RestClient.Builder builder, QBitProperties properties) {
+        var factory = new org.springframework.http.client.JdkClientHttpRequestFactory(
+                java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build());
+        factory.setReadTimeout(java.time.Duration.ofSeconds(10));
+        this.builder = builder.clone().requestFactory(factory);
         this.properties = properties;
-        this.restClient = builder.baseUrl(properties.baseUrl().toString()).build();
+        this.restClient = this.builder.clone().baseUrl(properties.baseUrl().toString()).build();
+    }
+
+    @Override public QueuePreferences getQueuePreferences() {
+        return authenticated(() -> restClient.get().uri("/api/v2/app/preferences")
+                .header(HttpHeaders.COOKIE, sessionCookie).retrieve().body(QueuePreferences.class));
+    }
+
+    @Override public void setQueuePreferences(QueuePreferences p) {
+        p.validate();
+        var values = new java.util.LinkedHashMap<String, Object>();
+        values.put("queueing_enabled", p.enabled());
+        values.put("max_active_downloads", p.downloads());
+        values.put("max_active_uploads", p.uploads());
+        values.put("max_active_torrents", p.total());
+        values.put("dont_count_slow_torrents", p.excludeSlow());
+        values.put("dl_limit", p.downloadLimit());
+        values.put("up_limit", p.uploadLimit());
+        values.put("alt_dl_limit", p.alternativeDownloadLimit());
+        values.put("alt_up_limit", p.alternativeUploadLimit());
+        authenticated(() -> {
+            var form = new LinkedMultiValueMap<String, String>();
+            form.add("json", new tools.jackson.databind.ObjectMapper().writeValueAsString(values));
+            restClient.post().uri("/api/v2/app/setPreferences").header(HttpHeaders.COOKIE, sessionCookie)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED).body(form).retrieve().toBodilessEntity();
+            return null;
+        });
+    }
+
+    @Override public boolean alternativeSpeedMode() {
+        return authenticated(() -> "1".equals(restClient.get().uri("/api/v2/transfer/speedLimitsMode")
+                .header(HttpHeaders.COOKIE, sessionCookie).retrieve().body(String.class)));
+    }
+
+    @Override public void setAlternativeSpeedMode(boolean enabled) {
+        authenticated(() -> {
+            if (alternativeSpeedMode() == enabled) return null;
+            var form = new LinkedMultiValueMap<String, String>();
+            form.add("mode", enabled ? "1" : "0");
+            try {
+                restClient.post().uri("/api/v2/transfer/setSpeedLimitsMode").header(HttpHeaders.COOKIE, sessionCookie)
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED).body(form).retrieve().toBodilessEntity();
+            } catch (RestClientResponseException exception) {
+                if (exception.getStatusCode().value() != 404) throw exception;
+                // Older 5.x versions only expose a toggle; do not retry it blindly.
+                if (alternativeSpeedMode() != enabled) restClient.post().uri("/api/v2/transfer/toggleSpeedLimitsMode")
+                        .header(HttpHeaders.COOKIE, sessionCookie).retrieve().toBodilessEntity();
+            }
+            return null;
+        });
     }
 
     @Override
@@ -101,7 +157,13 @@ public class QBitWebApiClient implements QBitClient {
         sessionCookie = cookies.getFirst().split(";", 2)[0];
     }
 
-    private <T> T authenticated(Request<T> request) {
+    private synchronized <T> T authenticated(Request<T> request) {
+        QBitProperties current = runtimeSettings == null ? properties : runtimeSettings.current(QBitProperties.class);
+        if (!current.equals(properties)) {
+            properties = current;
+            restClient = builder.clone().baseUrl(current.baseUrl().toString()).build();
+            sessionCookie = null;
+        }
         if (sessionCookie == null) {
             login();
         }

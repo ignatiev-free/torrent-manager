@@ -37,6 +37,12 @@ public class TorrentManagerService {
 
     private final QBitClient client;
     private final ManagerProperties properties;
+    @org.springframework.beans.factory.annotation.Autowired
+    private app.torrentmanager.settings.RuntimeSettingsService runtimeSettings;
+
+    private ManagerProperties properties() {
+        return runtimeSettings == null ? properties : runtimeSettings.current(ManagerProperties.class);
+    }
     private final Clock clock;
     private final ManagerStateStore stateStore;
     private final ApplicationEventPublisher eventPublisher;
@@ -50,6 +56,9 @@ public class TorrentManagerService {
     private boolean activeSnapshotInitialized;
     private Long lastDownloadRateLimit;
     private Instant lastActionAt;
+    private int effectiveDownloadSlots;
+    private ManagerProperties previousPolicy;
+    private Integer previousDownloadSlots;
 
     @Autowired
     public TorrentManagerService(QBitClient client, ManagerProperties properties,
@@ -87,6 +96,29 @@ public class TorrentManagerService {
     }
 
     void inspectAt(Instant now) {
+        if (!actionsEnabled()) {
+            speedHistory.clear(); observedSince.clear(); noSeedsSince.clear();
+            return;
+        }
+        if (!properties().equals(previousPolicy)) {
+            speedHistory.clear();
+            observedSince.clear();
+            noSeedsSince.clear();
+            previousPolicy = properties();
+        }
+        effectiveDownloadSlots = properties().maxActiveDownloads();
+        if (runtimeSettings != null) {
+            // A lookup failure aborts the cycle rather than using a stale limit.
+            var queue = client.getQueuePreferences();
+            effectiveDownloadSlots = queue.enabled()
+                    ? Math.min(queue.downloads() < 0 ? Integer.MAX_VALUE : queue.downloads(),
+                            queue.total() < 0 ? Integer.MAX_VALUE : queue.total())
+                    : Integer.MAX_VALUE;
+        }
+        if (previousDownloadSlots != null && previousDownloadSlots != effectiveDownloadSlots) {
+            speedHistory.clear(); observedSince.clear(); noSeedsSince.clear();
+        }
+        previousDownloadSlots = effectiveDownloadSlots;
         TransferInfo transferInfo = client.getTransferInfo();
         SpeedPolicy policy = speedPolicy(transferInfo);
         handleRateLimitChange(transferInfo.downloadRateLimit(), policy);
@@ -114,24 +146,25 @@ public class TorrentManagerService {
                 .toList());
 
         List<Torrent> healthy = managedActive.stream().filter(Predicate.not(toStop::contains)).toList();
-        int excess = Math.max(0, healthy.size() - properties.maxActiveDownloads());
+        int excess = Math.max(0, healthy.size() - effectiveDownloadSlots);
         healthy.stream()
                 .filter(torrent -> hasFullObservationWindow(torrent, now, policy.observationWindow()))
                 .sorted(Comparator.comparingDouble(this::averageSpeed))
                 .limit(excess)
                 .forEach(toStop::add);
 
-        List<Torrent> limitedStops = toStop.stream().limit(properties.maxStopsPerCycle()).toList();
-        if (!properties.dryRun() && !actionAllowed(now)) {
+        List<Torrent> limitedStops = toStop.stream().limit(properties().maxStopsPerCycle()).toList();
+        if (!properties().dryRun() && !actionAllowed(now)) {
             limitedStops = List.of();
         }
 
         for (Torrent torrent : limitedStops) {
+            if (!actionsEnabled()) return;
             String reason = hasNoSeedsForTooLong(torrent, now) ? "нет доступных сидов"
                     : isTooSlow(torrent, now, policy, transferInfo) ? "низкая средняя скорость"
                     : "превышен лимит активных загрузок";
             long averageKiB = Math.round(averageSpeed(torrent) / 1024.0);
-            if (properties.dryRun()) {
+            if (properties().dryRun()) {
                 log.warn("Тестовый режим: торрент '{}' был бы остановлен "
                                 + "(причина={}, средняя скорость={} KiB/s, порог={} KiB/s, сиды={}/{}, состояние={})",
                         torrent.name(), reason, averageKiB, policy.thresholdBytesPerSecond() / 1024,
@@ -140,23 +173,23 @@ public class TorrentManagerService {
                 client.stop(torrent.hash());
                 eventPublisher.publishEvent(new ManagerActionEvent(torrent.hash(), torrent.name(),
                         ManagerActionType.STOPPED, now, torrent.progress()));
-                pausedByManager.put(torrent.hash(), now.plus(properties.retryCooldown()));
+                pausedByManager.put(torrent.hash(), now.plus(properties().retryCooldown()));
                 fairRotationCandidates.remove(torrent.hash());
                 stateStore.save(pausedByManager);
                 lastActionAt = now;
                 log.info("Торрент '{}' остановлен (причина={}, средняя скорость={} KiB/s, сиды={}/{}); "
                                 + "следующая попытка после {}",
                         torrent.name(), reason, averageKiB, torrent.connectedSeeds(), torrent.availableSeeds(),
-                        formatTime(now.plus(properties.retryCooldown())));
+                        formatTime(now.plus(properties().retryCooldown())));
                 clearObservation(torrent.hash());
             }
         }
 
         boolean hasQueuedDownloads = torrents.stream().anyMatch(Torrent::isQueuedForDownload);
-        if (!properties.dryRun() && limitedStops.isEmpty() && actionAllowed(now)) {
-            int genuinelyFreeSlots = Math.max(0, properties.maxActiveDownloads() - managedActive.size());
+        if (!properties().dryRun() && limitedStops.isEmpty() && actionAllowed(now)) {
+            int genuinelyFreeSlots = Math.max(0, effectiveDownloadSlots - managedActive.size());
             int fairVacancies = Math.max(0,
-                    properties.fairRotationSlots() - fairRotationCandidates.size());
+                    Math.min(effectiveDownloadSlots, properties().fairRotationSlots()) - fairRotationCandidates.size());
             int promoted = retryEligible(torrentsByHash, fairVacancies, now, true);
             int normallyStarted = 0;
             if (!hasQueuedDownloads) {
@@ -174,20 +207,21 @@ public class TorrentManagerService {
                         + "окно={}; тестовый режим={}",
                 torrents.size(), managedActive.size(), forced, pausedByManager.size(),
                 transferInfo.downloadSpeed() / 1024, formatLimit(transferInfo.downloadRateLimit()),
-                policy.thresholdBytesPerSecond() / 1024, policy.observationWindow(), properties.dryRun());
+                policy.thresholdBytesPerSecond() / 1024, policy.observationWindow(), properties().dryRun());
     }
 
     private SpeedPolicy speedPolicy(TransferInfo transferInfo) {
         if (!transferInfo.isDownloadLimited()) {
-            return new SpeedPolicy(properties.slowWindow(), properties.minimumDownloadSpeed().toBytes());
+            return new SpeedPolicy(properties().slowWindow(), properties().minimumDownloadSpeed().toBytes());
         }
         long proportionalThreshold = Math.round(
                 transferInfo.downloadRateLimit()
-                        / (double) Math.max(1, properties.maxActiveDownloads())
-                        * properties.limitedThresholdRatio());
-        long threshold = Math.max(properties.minimumLimitedDownloadSpeed().toBytes(),
-                Math.min(properties.minimumDownloadSpeed().toBytes(), proportionalThreshold));
-        return new SpeedPolicy(properties.limitedSlowWindow(), threshold);
+                        / (double) Math.max(1, effectiveDownloadSlots == Integer.MAX_VALUE
+                                ? properties().maxActiveDownloads() : effectiveDownloadSlots)
+                        * properties().limitedThresholdRatio());
+        long threshold = Math.max(properties().minimumLimitedDownloadSpeed().toBytes(),
+                Math.min(properties().minimumDownloadSpeed().toBytes(), proportionalThreshold));
+        return new SpeedPolicy(properties().limitedSlowWindow(), threshold);
     }
 
     private void handleRateLimitChange(long downloadRateLimit, SpeedPolicy policy) {
@@ -232,7 +266,7 @@ public class TorrentManagerService {
 
     private boolean isLimitedChannelSaturated(TransferInfo transferInfo) {
         return transferInfo.isDownloadLimited()
-                && transferInfo.downloadSpeed() >= transferInfo.downloadRateLimit() * properties.saturatedLimitRatio();
+                && transferInfo.downloadSpeed() >= transferInfo.downloadRateLimit() * properties().saturatedLimitRatio();
     }
 
     private boolean hasFullObservationWindow(Torrent torrent, Instant now, Duration observationWindow) {
@@ -250,11 +284,11 @@ public class TorrentManagerService {
 
     private boolean hasNoSeedsForTooLong(Torrent torrent, Instant now) {
         Instant since = noSeedsSince.get(torrent.hash());
-        return since != null && !since.isAfter(now.minus(properties.noSeedsTimeout()));
+        return since != null && !since.isAfter(now.minus(properties().noSeedsTimeout()));
     }
 
     private boolean actionAllowed(Instant now) {
-        return lastActionAt == null || !now.isBefore(lastActionAt.plus(properties.minimumActionInterval()));
+        return lastActionAt == null || !now.isBefore(lastActionAt.plus(properties().minimumActionInterval()));
     }
 
     private int retryEligible(Map<String, Torrent> torrentsByHash, int slots, Instant now,
@@ -269,7 +303,9 @@ public class TorrentManagerService {
                 .limit(slots)
                 .map(Map.Entry::getKey)
                 .toList();
+        int started = 0;
         for (String hash : eligible) {
+            if (!actionsEnabled() || properties().dryRun()) break;
             Torrent torrent = torrentsByHash.get(hash);
             if (fairRotation) {
                 client.moveToTop(hash);
@@ -281,19 +317,24 @@ public class TorrentManagerService {
                     now, torrent.progress()));
             startedByManager.add(hash);
             pausedByManager.remove(hash);
+            started++;
             if (fairRotation) {
                 log.info("Выделен слот справедливой ротации для '{}' (прогресс={}%, "
                                 + "доступно слотов ротации={})",
                         torrent.name(), Math.round(torrent.progress() * 100),
-                        properties.fairRotationSlots());
+                        properties().fairRotationSlots());
             } else {
                 log.info("Повторный запуск '{}' после периода ожидания", torrent.name());
             }
         }
-        if (!eligible.isEmpty()) {
+        if (started > 0) {
             stateStore.save(pausedByManager);
         }
-        return eligible.size();
+        return started;
+    }
+
+    private boolean actionsEnabled() {
+        return runtimeSettings == null || runtimeSettings.managerEnabled();
     }
 
     private void logNewlyActive(List<Torrent> active) {

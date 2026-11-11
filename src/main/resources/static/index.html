@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Torrent Manager</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css"><script src="/app.js" defer></script>
+</head>
+<body>
+<div id="shell">
+  <aside class="sidebar">
+    <a href="#overview" class="brand"><span class="brand-mark">↧</span><span>Torrent<br><strong>Manager</strong></span></a>
+    <div class="nav-caption">УПРАВЛЕНИЕ</div>
+    <nav aria-label="Разделы">
+      <a href="#overview" data-page="overview"><span>◫</span>Обзор</a>
+      <a href="#queue" data-page="queue"><span>⇄</span>Очередь и скорость</a>
+      <a href="#settings" data-page="settings"><span>⚙</span>Настройки</a>
+      <a href="#connections" data-page="connections"><span>⌘</span>Подключения и диски</a>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot"></span> В вашей домашней сети<br><small id="timezone">Локальное управление</small></div>
+  </aside>
+  <main>
+    <header><div class="breadcrumb">TORRENT MANAGER <span>/</span> <span id="breadcrumb">Обзор</span></div><div class="header-actions"><button id="theme" class="icon-button" aria-label="Переключить тему">◐</button></div></header>
+    <section class="page-heading"><div><span class="eyebrow" id="page-kicker">ДОМАШНЯЯ МЕДИАТЕКА</span><h1 id="page-title">Всё под контролем</h1><p id="page-subtitle">Состояние загрузок и быстрые действия.</p></div><span id="connection-badge" class="badge">Проверяем подключение…</span></section>
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+    <section id="overview-page" class="page">
+      <div id="connection-error" class="notice warning" hidden></div>
+      <div class="metrics">
+        <article class="metric"><span>Скорость загрузки <i>↓</i></span><strong id="download-speed">—</strong><small id="download-limit">Данные qBittorrent</small></article>
+        <article class="metric"><span>Скорость отдачи <i>↑</i></span><strong id="upload-speed">—</strong><small id="upload-limit">Данные qBittorrent</small></article>
+        <article class="metric"><span>Загружаются <i>↧</i></span><strong id="active-count">—</strong><small id="queued-count">В очереди: —</small></article>
+        <article class="metric"><span>Раздаются <i>↥</i></span><strong id="seeding-count">—</strong><small>Активные раздачи</small></article>
+      </div>
+      <div class="two-columns">
+        <article class="card"><div class="card-heading"><span class="section-icon">⇄</span><h2>Менеджер очереди</h2><span class="badge" id="manager-badge">—</span></div><p id="manager-description">Загружаем состояние…</p><div class="card-footer"><button id="manager-toggle" class="secondary">Приостановить менеджер</button><a href="#settings">Настройки ротации →</a></div></article>
+        <article class="card"><div class="card-heading"><span class="section-icon">♧</span><h2>Уведомления</h2><span class="badge" id="notification-badge">—</span></div><p id="notification-description">Загружаем состояние…</p><div class="button-row"><button class="secondary" data-mute="hour">Тишина на час</button><button class="secondary" data-mute="tomorrow">До завтра</button><button class="quiet" data-mute="off">Выключить</button><button class="quiet" data-mute="resume">Включить</button></div></article>
+      </div>
+      <article class="card"><div class="card-heading"><h2>Последние завершения</h2><span class="muted">История загрузок</span></div><div id="completions" class="activity-list"><p class="empty">Загружаем историю…</p></div></article>
+      <article class="card"><div class="card-heading"><h2>Действия менеджера</h2><span class="muted">За последние сутки</span></div><div id="actions" class="activity-list"></div></article>
+      <article class="report-banner"><div><h2>Отчёт о медиатеке</h2><p id="report-description">Загрузки, проблемные торренты и свободное место.</p></div><button id="send-report" class="secondary">Отправить на почту ↗</button></article>
+      <p class="footnote" id="refreshed">Данные обновляются автоматически каждые 15 секунд.</p>
+    </section>
+    <section id="queue-page" class="page" hidden>
+      <div class="notice">Лимиты считываются из qBittorrent. Изменения в его интерфейсе тоже учитываются менеджером.</div>
+      <form id="queue-form">
+        <article class="card"><div class="card-heading"><h2>Одновременные торренты</h2><button type="button" id="reload-queue" class="quiet">Обновить из qBittorrent ↻</button></div>
+          <label class="switch-row"><span><b>Очередь торрентов</b><small>Общий лимит действует вместе с лимитами загрузок и раздач.</small></span><input type="checkbox" name="queueing_enabled" role="switch"></label>
+          <div class="form-grid three"><label>Загрузки<input type="number" name="max_active_downloads" min="-1" max="10000" required><small>−1 — без ограничения; 0 — нет слотов</small></label><label>Раздачи<input type="number" name="max_active_uploads" min="-1" max="10000" required><small>Одновременно отдаваемые торренты</small></label><label>Всего активных<input type="number" name="max_active_torrents" min="-1" max="10000" required><small>Загрузки и раздачи суммарно</small></label></div>
+          <label class="switch-row"><span><b>Не учитывать медленные торренты</b><small>qBittorrent может запускать больше торрентов, чем указано в лимитах.</small></span><input type="checkbox" name="dont_count_slow_torrents" role="switch"></label>
+        </article>
+        <article class="card"><div class="card-heading"><h2>Скорость передачи</h2><span class="badge">КиБ/с</span></div><p>0 — без ограничения. 1024 КиБ/с = 1 МиБ/с.</p>
+          <div class="form-grid"><label>Обычная загрузка · КиБ/с<input type="number" name="dl_limit" min="0" max="2097151" step="any" required></label><label>Обычная отдача · КиБ/с<input type="number" name="up_limit" min="0" max="2097151" step="any" required></label><label>Альтернативная загрузка · КиБ/с<input type="number" name="alt_dl_limit" min="0" max="2097151" step="any" required></label><label>Альтернативная отдача · КиБ/с<input type="number" name="alt_up_limit" min="0" max="2097151" step="any" required></label></div>
+          <label class="switch-row"><span><b>Использовать альтернативные лимиты</b><small>Менеджер заново оценит скорость после изменения действующего лимита.</small></span><input type="checkbox" name="alternativeMode" role="switch"></label><p id="scheduler-note" class="footnote"></p>
+        </article>
+        <div class="save-bar"><span id="queue-dirty">Значения из qBittorrent</span><button type="submit" class="primary" id="save-queue">Применить в qBittorrent</button></div>
+      </form><p id="queue-error" class="notice warning" hidden></p>
+    </section>
+    <form id="settings-form">
+      <section id="settings-page" class="page" hidden><div class="notice">Изменения сохраняются между перезапусками. Новые параметры ротации учитываются со следующей проверки.</div><div id="settings-fields"></div></section>
+      <section id="connections-page" class="page" hidden><div id="connection-fields"></div>
+        <article class="card"><div class="card-heading"><h2>Диски медиатеки</h2><button id="add-disk" type="button" class="secondary">+ Добавить диск</button></div><p>Укажите путь внутри контейнера менеджера и соответствующие пути внутри qBittorrent.</p><div id="storage-fields"></div><div id="disks"></div><div class="notice subtle">Подключение новых каталогов в Docker Compose требует пересоздания контейнера. Изменение названий и сопоставлений путей применяется сразу.</div><button type="button" id="check-storage" class="secondary">Проверить диски</button><div id="storage-result"></div></article>
+        <div class="notice subtle">Порт, часовая зона и подключения каталогов задаются при развёртывании. Для их изменения потребуется перезапуск.</div>
+      </section>
+      <div id="settings-save-bar" class="save-bar" hidden><span id="settings-dirty">Все изменения сохранены</span><div class="button-row"><button type="button" id="discard-settings" class="quiet">Отменить изменения</button><button type="submit" class="primary" id="save-settings">Сохранить настройки</button></div></div>
+    </form>
+    <footer>Torrent Manager <span>Локально. Просто. Под вашим контролем.</span></footer>
+  </main>
+</div>
+</body></html>

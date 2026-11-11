@@ -4,6 +4,9 @@ public record ReportStatusResponse(
         String lastDailyReport,
         String lastManualReport,
         String lastDeliveryStatus,
-        String lastError
+        String lastError,
+        java.time.Instant nextManualReportAt,
+        boolean manualAvailable,
+        String manualUnavailableReason
 ) {
 }

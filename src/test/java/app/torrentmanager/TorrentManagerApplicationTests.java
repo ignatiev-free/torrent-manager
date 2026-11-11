@@ -15,7 +15,8 @@ import org.springframework.boot.test.context.SpringBootTest;
         "email-notifications.enabled=true",
         "email-notifications.to=recipient@example.com",
         "spring.mail.host=127.0.0.1",
-        "spring.mail.port=2525"
+        "spring.mail.port=2525",
+        "web.settings-file=build/test-application/settings.properties"
 })
 class TorrentManagerApplicationTests {
 

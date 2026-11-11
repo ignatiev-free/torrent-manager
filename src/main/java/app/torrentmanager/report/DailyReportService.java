@@ -12,7 +12,6 @@ import app.torrentmanager.notification.NotificationSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -26,8 +25,6 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-@ConditionalOnProperty(name = {"daily-report.enabled", "email-notifications.enabled"},
-        havingValue = "true")
 public class DailyReportService {
     private static final Logger log = LoggerFactory.getLogger(DailyReportService.class);
     private static final DateTimeFormatter SUBJECT_DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
@@ -39,6 +36,12 @@ public class DailyReportService {
     private final DailyReportStateStore stateStore;
     private final NotificationSender sender;
     private final DailyReportProperties properties;
+    @org.springframework.beans.factory.annotation.Autowired
+    private app.torrentmanager.settings.RuntimeSettingsService runtimeSettings;
+
+    private DailyReportProperties properties() {
+        return runtimeSettings == null ? properties : runtimeSettings.current(DailyReportProperties.class);
+    }
     private final Clock clock;
     private DailyReportState state;
 
@@ -77,8 +80,9 @@ public class DailyReportService {
     @Scheduled(fixedDelayString = "${daily-report.poll-interval:1m}",
             initialDelayString = "${daily-report.initial-delay:30s}")
     public synchronized void sendScheduledIfDue() {
+        if (!properties().enabled() || (runtimeSettings != null && !runtimeSettings.notificationsAllowed())) return;
         ZonedDateTime now = ZonedDateTime.now(clock);
-        if (now.toLocalTime().isBefore(properties.time())
+        if (now.toLocalTime().isBefore(properties().time())
                 || now.toLocalDate().equals(state.lastDailyReportDate())) {
             return;
         }
@@ -91,10 +95,13 @@ public class DailyReportService {
     }
 
     public synchronized void sendManual() {
+        if (runtimeSettings != null && !runtimeSettings.notificationsAllowed()) {
+            throw new ReportUnavailableException("Уведомления выключены или временно заглушены. Включите их перед отправкой отчёта.");
+        }
         Instant now = clock.instant();
         if (state.lastManualReportAt() != null
-                && now.isBefore(state.lastManualReportAt().plus(properties.manualCooldown()))) {
-            throw new IllegalStateException("Ручной отчёт недавно уже отправлялся");
+                && now.isBefore(state.lastManualReportAt().plus(properties().manualCooldown()))) {
+            throw cooldown(now);
         }
         try {
             Instant from = reportFrom(now);
@@ -111,8 +118,39 @@ public class DailyReportService {
     }
 
     public synchronized ReportStatusResponse status() {
+        Instant now = clock.instant();
+        Instant next = state.lastManualReportAt() == null ? null
+                : state.lastManualReportAt().plus(properties().manualCooldown());
+        boolean mailAllowed = runtimeSettings == null || runtimeSettings.notificationsAllowed();
+        boolean waiting = next != null && now.isBefore(next);
+        String reason = !mailAllowed ? "Уведомления выключены или временно заглушены"
+                : waiting ? cooldown(now).getMessage() : null;
         return new ReportStatusResponse(formatInstant(state.lastDailyReportAt()),
-                formatInstant(state.lastManualReportAt()), state.lastDeliveryStatus(), state.lastError());
+                formatInstant(state.lastManualReportAt()), state.lastDeliveryStatus(), state.lastError(),
+                next, mailAllowed && !waiting, reason);
+    }
+
+    private ReportCooldownException cooldown(Instant now) {
+        Instant next = state.lastManualReportAt().plus(properties().manualCooldown());
+        var remaining = java.time.Duration.between(now, next);
+        long seconds = Math.max(1, remaining.getSeconds() + (remaining.getNano() > 0 ? 1 : 0));
+        String time = DateTimeFormatter.ofPattern("HH:mm:ss").format(next.atZone(clock.getZone()));
+        return new ReportCooldownException("Отчёт уже отправлен. Повторная отправка доступна в "
+                + time + " (" + clock.getZone() + ").", next, seconds);
+    }
+
+    public static class ReportCooldownException extends IllegalStateException {
+        private final Instant nextAllowedAt;
+        private final long retryAfterSeconds;
+        public ReportCooldownException(String message, Instant nextAllowedAt, long retryAfterSeconds) {
+            super(message); this.nextAllowedAt = nextAllowedAt; this.retryAfterSeconds = retryAfterSeconds;
+        }
+        public Instant nextAllowedAt() { return nextAllowedAt; }
+        public long retryAfterSeconds() { return retryAfterSeconds; }
+    }
+
+    public static class ReportUnavailableException extends IllegalStateException {
+        public ReportUnavailableException(String message) { super(message); }
     }
 
     private void sendDaily(ZonedDateTime now) {

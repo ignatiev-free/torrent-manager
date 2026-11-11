@@ -7,11 +7,11 @@ services:
     working_dir: /app
     command: ["java", "-jar", "/app/torrent-manager.jar"]
     environment:
-      TZ: ${TZ:-UTC}
-      SERVER_PORT: "8091"
-      QBITTORRENT_URL: ${QBITTORRENT_URL:?Set QBITTORRENT_URL in .env}
-      QBITTORRENT_USERNAME: ${QBITTORRENT_USERNAME:?Set QBITTORRENT_USERNAME in .env}
-      QBITTORRENT_PASSWORD: ${QBITTORRENT_PASSWORD:?Create a .env file with QBITTORRENT_PASSWORD}
+      TZ: ${TZ:-Europe/Moscow}
+      SERVER_PORT: ${SERVER_PORT:-8091}
+      QBITTORRENT_URL: ${QBITTORRENT_URL:-http://127.0.0.1:8080}
+      QBITTORRENT_USERNAME: ${QBITTORRENT_USERNAME:-}
+      QBITTORRENT_PASSWORD: ${QBITTORRENT_PASSWORD:-}
       TORRENT_MANAGER_DRY_RUN: ${TORRENT_MANAGER_DRY_RUN:-true}
       TORRENT_MANAGER_RETRY_COOLDOWN: ${TORRENT_MANAGER_RETRY_COOLDOWN:-20m}
       TORRENT_MANAGER_FAIR_ROTATION_SLOTS: ${TORRENT_MANAGER_FAIR_ROTATION_SLOTS:-1}
@@ -58,5 +58,3 @@ services:
       - ${APP_DIR:?Set APP_DIR to the absolute deployment folder}/torrent-manager.jar:/app/torrent-manager.jar:ro
       - ${APP_DIR}/logs:/app/logs
       - ${APP_DIR}/data:/app/data
-      - ${STORAGE_HDD1_SOURCE_PATH:-/Volume2}:/storage/hdd1:ro
-      - ${STORAGE_HDD2_SOURCE_PATH:-/Volume3}:/storage/hdd2:ro

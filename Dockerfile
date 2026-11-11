@@ -15,5 +15,6 @@ WORKDIR /app
 RUN mkdir -p /app/logs /app/data
 COPY --from=build /workspace/build/libs/torrent-manager-*.jar /app/torrent-manager.jar
 
-EXPOSE 8080
+ENV SERVER_PORT=8091
+EXPOSE 8091
 ENTRYPOINT ["java", "-jar", "/app/torrent-manager.jar"]
