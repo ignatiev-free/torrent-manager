@@ -46,6 +46,14 @@ public class QBitWebApiClient implements QBitClient {
         values.put("up_limit", p.uploadLimit());
         values.put("alt_dl_limit", p.alternativeDownloadLimit());
         values.put("alt_up_limit", p.alternativeUploadLimit());
+        setPreferences(values);
+    }
+
+    @Override public void setDownloadLimit(long bytesPerSecond, boolean alternative) {
+        setPreferences(java.util.Map.of(alternative ? "alt_dl_limit" : "dl_limit", bytesPerSecond));
+    }
+
+    private void setPreferences(java.util.Map<String, Object> values) {
         authenticated(() -> {
             var form = new LinkedMultiValueMap<String, String>();
             form.add("json", new tools.jackson.databind.ObjectMapper().writeValueAsString(values));

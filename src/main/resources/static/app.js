@@ -78,7 +78,7 @@ async function refreshOverview() {
   $('manager-description').textContent = !overview.managerEnabled ? 'Автоматические действия приостановлены. Торренты продолжают работать.' : overview.dryRun ? 'Менеджер наблюдает за очередью и записывает решения, не останавливая и не запуская торренты.' : 'Медленные загрузки уступают место другим. Старые торренты получают повторные попытки.';
   $('manager-toggle').textContent = overview.managerEnabled ? 'Приостановить менеджер' : 'Возобновить менеджер';
   badge('notification-badge', overview.notificationsAllowed ? 'Включены' : 'Тишина', overview.notificationsAllowed ? 'good' : 'warn');
-  $('notification-description').textContent = overview.notificationsAllowed ? 'Письма о завершениях, предупреждения и отчёты отправляются согласно настройкам.' : overview.mutedUntil && new Date(overview.mutedUntil) > new Date() ? 'Уведомления заглушены до ' + date(overview.mutedUntil) + '. Пропущенные письма не будут досланы.' : 'Почтовые уведомления выключены. История загрузок продолжает сохраняться.';
+  $('notification-description').textContent = overview.notificationsAllowed ? 'Уведомления о завершениях, предупреждения и отчёты отправляются согласно настройкам.' : overview.mutedUntil && new Date(overview.mutedUntil) > new Date() ? 'Уведомления заглушены до ' + date(overview.mutedUntil) + '. Пропущенные уведомления не будут досланы.' : 'Уведомления выключены. История загрузок продолжает сохраняться.';
   $('timezone').textContent = overview.timezone;
   renderActivity('completions', overview.completions, 'Здесь появятся новые завершённые загрузки.', item => [item.name, 'Загрузка завершена', item.completedAt, '✓']);
   const labels = {STOPPED:'Приостановлен менеджером', RESUMED:'Повторная попытка', FAIR_ROTATION:'Справедливая ротация'};
@@ -140,7 +140,7 @@ function updateReportButton() {
   button.title = report.manualUnavailableReason || '';
 }
 setInterval(updateReportButton, 1000);
-const sectionNames = {manager:'Управление загрузками', notifications:'Уведомления', reports:'Отчёты', connections:'qBittorrent', mail:'Почта · SMTP'};
+const sectionNames = {manager:'Управление загрузками', notifications:'Уведомления', reports:'Отчёты', connections:'qBittorrent', mail:'Почта · SMTP', telegram:'Telegram'};
 function renderSettings() {
   $('settings-fields').replaceChildren(); $('connection-fields').replaceChildren(); $('storage-fields').replaceChildren();
   Object.entries(sectionNames).forEach(([section, title]) => {
@@ -152,13 +152,14 @@ function renderSettings() {
       if (field.type === 'boolean') card.append(control); else grid.append(control);
     });
     card.append(grid);
-    if (section === 'connections' || section === 'mail') {
-      const test = element('button', section === 'mail' ? 'Проверить SMTP без отправки письма' : 'Проверить подключение', 'secondary');
+    if (['connections', 'mail', 'telegram'].includes(section)) {
+      const testLabel = {mail:'Проверить SMTP без отправки письма', telegram:'Отправить тест в Telegram', connections:'Проверить подключение'};
+      const test = element('button', testLabel[section], 'secondary');
       test.type = 'button'; test.style.marginTop = '22px'; test.onclick = () => action(test, async () => {
-        requireSaved(); const result = await api('/test/' + (section === 'mail' ? 'smtp' : 'qbittorrent'), {method:'POST'}); notify(result.message);
+        requireSaved(); const result = await api('/test/' + ({mail:'smtp', telegram:'telegram', connections:'qbittorrent'}[section]), {method:'POST'}); notify(result.message);
       }); card.append(test);
     }
-    $(section === 'connections' || section === 'mail' ? 'connection-fields' : 'settings-fields').append(card);
+    $(['connections', 'mail', 'telegram'].includes(section) ? 'connection-fields' : 'settings-fields').append(card);
   });
   $('storage-fields').append(settingControl(settings.fields.find(f => f.key === 'storage-report.enabled')));
   $('disks').replaceChildren(); settings.disks.forEach(addDisk);

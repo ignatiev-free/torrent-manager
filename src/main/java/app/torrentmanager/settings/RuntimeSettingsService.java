@@ -38,7 +38,7 @@ public class RuntimeSettingsService {
         }
         defaults.put("control.manager-enabled", "true");
         for (SettingField field : SettingsCatalog.FIELDS) {
-            if (field.key().startsWith("spring.mail.")) {
+            if (field.key().startsWith("spring.mail.") || field.key().startsWith("telegram-notifications.")) {
                 defaults.put(field.key(), environment.getProperty(field.key(), ""));
             }
         }
@@ -180,6 +180,16 @@ public class RuntimeSettingsService {
     }
 
     private void validate(Map<String, String> values, Map<Class<?>, Object> typed) {
+        if (Boolean.parseBoolean(values.get("telegram-notifications.enabled"))
+                && (!values.get("telegram-notifications.bot-token").matches("[0-9]+:[A-Za-z0-9_-]+")
+                || values.get("telegram-notifications.chat-id").isBlank())) {
+            throw new IllegalArgumentException("Для включения Telegram укажите токен бота и ID чата");
+        }
+        if (Boolean.parseBoolean(values.get("telegram-notifications.commands-enabled"))
+                && (!Boolean.parseBoolean(values.get("telegram-notifications.enabled"))
+                || !values.get("telegram-notifications.chat-id").matches("[1-9][0-9]*"))) {
+            throw new IllegalArgumentException("Для команд включите Telegram и укажите ID личного чата");
+        }
         ManagerProperties m = (ManagerProperties) typed.get(ManagerProperties.class);
         if (m.maxStopsPerCycle() < 1 || m.maxStopsPerCycle() > 100 || m.fairRotationSlots() < 0 || m.fairRotationSlots() > 1000)
             throw new IllegalArgumentException("Недопустимое количество остановок или слотов ротации");

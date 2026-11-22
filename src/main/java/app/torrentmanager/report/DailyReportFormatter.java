@@ -5,6 +5,7 @@ import app.torrentmanager.analytics.ManagerActionType;
 import app.torrentmanager.analytics.TorrentAnalyticsRecord;
 import app.torrentmanager.config.DailyReportProperties;
 import app.torrentmanager.monitoring.DownloadCompletionRecord;
+import app.torrentmanager.notification.TelegramMessageFormat;
 import org.springframework.stereotype.Component;
 import org.springframework.web.util.HtmlUtils;
 
@@ -66,6 +67,53 @@ public class DailyReportFormatter {
                 .append("Из них через справедливую ротацию: ").append(fair).append("\n\n");
         appendAttention(report, attention, to);
         return report.toString().stripTrailing();
+    }
+
+    public String formatTelegram(Instant from, Instant to, List<DownloadCompletionRecord> completions,
+                                 List<TorrentAnalyticsRecord> analytics, StorageCapacitySnapshot storage) {
+        ZoneId zone = ZoneId.systemDefault();
+        var current = current(analytics);
+        var attention = attentionAnalyzer.analyze(analytics, to);
+        var text = new StringBuilder(DATE_TIME.format(from.atZone(zone)))
+                .append(" → ").append(DATE_TIME.format(to.atZone(zone))).append("\n\n")
+                .append("✅ Завершено: ").append(completions.size())
+                .append("\n⬇️ Загрузка и очередь: ").append(current.size())
+                .append("\n⚠️ Требуют внимания: ").append(attention.size());
+        if (!completions.isEmpty()) text.append("\n\n────────────\nГотовые загрузки");
+        completions.stream().limit(5).forEach(item -> text.append("\n• ").append(shortName(item.name())));
+        if (completions.size() > 5) text.append("\nИ ещё ").append(completions.size() - 5);
+
+        if (!attention.isEmpty()) {
+            text.append("\n\n────────────\nТребуют внимания");
+            int limit = Math.min(5, properties().maxAttentionItems());
+            attention.stream().limit(limit).forEach(item -> text.append("\n• ").append(shortName(item.name()))
+                    .append("\n").append(TelegramMessageFormat.progress(item.progress()))
+                    .append("\n└ ").append(item.reason()));
+            if (attention.size() > limit) text.append("\nИ ещё ").append(attention.size() - limit);
+        }
+
+        if (storage.enabled() && !storage.disks().isEmpty()) {
+            text.append("\n\n────────────\nМесто на дисках");
+            for (var disk : storage.disks()) {
+                text.append("\n\n• ").append(shortName(disk.name())).append("\n");
+                if (!disk.available()) text.append("нет данных");
+                else if (disk.projectedFreeBytes() < 0) {
+                    text.append("не хватит ").append(bytes(-disk.projectedFreeBytes()));
+                } else {
+                    text.append("Свободно: ").append(bytes(disk.freeBytes()));
+                    if (disk.projectedFreeBytes() != disk.freeBytes()) {
+                        text.append(" → ").append(bytes(disk.projectedFreeBytes())).append(" после загрузок");
+                    }
+                }
+            }
+        }
+        return text.toString().stripTrailing();
+    }
+
+    private static String shortName(String name) {
+        name = name.replace('\n', ' ').replace('\r', ' ');
+        if (name.length() <= 100) return name;
+        return name.substring(0, Character.isHighSurrogate(name.charAt(98)) ? 98 : 99) + "…";
     }
 
     public String formatHtml(Instant from, Instant to,

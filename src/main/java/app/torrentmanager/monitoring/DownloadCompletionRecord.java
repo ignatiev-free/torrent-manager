@@ -49,6 +49,11 @@ public record DownloadCompletionRecord(
                 event.activeDurationSeconds());
     }
 
+    public DownloadCompletionRecord queued() {
+        return new DownloadCompletionRecord(id, hash, name, completedAt, DeliveryStatus.QUEUED,
+                "TELEGRAM", attempts, null, null, null, totalDurationSeconds, activeDurationSeconds);
+    }
+
     public DownloadCompletionRecord delivered(Instant at) {
         return new DownloadCompletionRecord(id, hash, name, completedAt, DeliveryStatus.DELIVERED,
                 channel, attempts + 1, null, at, null, totalDurationSeconds, activeDurationSeconds);

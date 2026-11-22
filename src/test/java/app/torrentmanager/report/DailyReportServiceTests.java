@@ -92,6 +92,7 @@ class DailyReportServiceTests {
         StorageCapacityService storage = mock(StorageCapacityService.class);
         DailyReportFormatter formatter = mock(DailyReportFormatter.class);
         NotificationSender sender = mock(NotificationSender.class);
+        org.mockito.Mockito.doCallRealMethod().when(sender).submit(org.mockito.ArgumentMatchers.any());
         InMemoryStore store = new InMemoryStore();
         when(completions.recent(1000)).thenReturn(List.of());
         when(analytics.snapshot()).thenReturn(List.of(record()));

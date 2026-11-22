@@ -67,10 +67,10 @@ public class DownloadNotificationService {
 
     private void deliver(DownloadCompletionRecord record, Instant now) {
         try {
-            sender.send(messageFor(record));
-            history.replace(record.id(), record.delivered(now));
-            log.info("Уведомление о завершении загрузки отправлено: '{}' (канал={})",
-                    record.name(), sender.channel());
+            boolean queued = sender.submit(messageFor(record));
+            history.replace(record.id(), queued ? record.queued() : record.delivered(now));
+            log.info("Уведомление о завершении загрузки {}: '{}'",
+                    queued ? "поставлено в очередь" : "отправлено", record.name());
         } catch (EmailNotificationSender.NotificationsSuppressedException exception) {
             history.replace(record.id(), record.suppressed());
         } catch (RuntimeException exception) {
@@ -129,7 +129,12 @@ public class DownloadNotificationService {
                 metric("Активная загрузка (наблюдаемая)", active, "#16a34a"),
                 DATE_TIME.format(record.completedAt().atZone(ZoneId.systemDefault())),
                 HtmlUtils.htmlEscape(record.hash()));
-        return new NotificationMessage("Загрузка завершена — " + record.name(), body, html);
+        String telegram = "• " + record.name().replace('\n', ' ').replace('\r', ' ')
+                + "\n" + TelegramMessageFormat.progress(1)
+                + "\n\n📅 Завершено: " + DATE_TIME.format(record.completedAt().atZone(ZoneId.systemDefault()))
+                + "\n⏱ Всего с очередью: " + total + "\n⚡ Активная загрузка: " + active;
+        return new NotificationMessage("Загрузка завершена — " + record.name(), body, html, telegram,
+                "✅ Загрузка завершена");
     }
 
     private String metric(String label, String value, String color) {

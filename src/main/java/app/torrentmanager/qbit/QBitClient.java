@@ -7,6 +7,8 @@ public interface QBitClient {
 
     default void setQueuePreferences(QueuePreferences preferences) { throw new UnsupportedOperationException(); }
 
+    default void setDownloadLimit(long bytesPerSecond, boolean alternative) { throw new UnsupportedOperationException(); }
+
     default boolean alternativeSpeedMode() { throw new UnsupportedOperationException(); }
 
     default void setAlternativeSpeedMode(boolean enabled) { throw new UnsupportedOperationException(); }

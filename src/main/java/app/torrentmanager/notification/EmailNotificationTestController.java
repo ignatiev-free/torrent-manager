@@ -15,7 +15,8 @@ import java.util.Map;
 public class EmailNotificationTestController {
     private final NotificationSender sender;
 
-    public EmailNotificationTestController(NotificationSender sender) {
+    public EmailNotificationTestController(
+            @org.springframework.beans.factory.annotation.Qualifier("emailNotificationSender") NotificationSender sender) {
         this.sender = sender;
     }
 

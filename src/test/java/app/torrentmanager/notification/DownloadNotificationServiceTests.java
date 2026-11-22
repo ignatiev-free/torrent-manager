@@ -27,6 +27,7 @@ class DownloadNotificationServiceTests {
     void marksNotificationAsDelivered() {
         DownloadCompletionHistoryService history = mock(DownloadCompletionHistoryService.class);
         NotificationSender sender = mock(NotificationSender.class);
+        org.mockito.Mockito.doCallRealMethod().when(sender).submit(org.mockito.ArgumentMatchers.any());
         DownloadCompletionRecord pending = pending(0, NOW);
         when(history.nextPending(NOW)).thenReturn(Optional.of(pending));
 
@@ -51,6 +52,7 @@ class DownloadNotificationServiceTests {
     void schedulesRetryAfterFirstFailure() {
         DownloadCompletionHistoryService history = mock(DownloadCompletionHistoryService.class);
         NotificationSender sender = mock(NotificationSender.class);
+        org.mockito.Mockito.doCallRealMethod().when(sender).submit(org.mockito.ArgumentMatchers.any());
         DownloadCompletionRecord pending = pending(0, NOW);
         when(history.nextPending(NOW)).thenReturn(Optional.of(pending));
         doThrow(new IllegalStateException("SMTP unavailable")).when(sender)
@@ -71,6 +73,7 @@ class DownloadNotificationServiceTests {
     void marksNotificationAsFailedAfterFifthAttempt() {
         DownloadCompletionHistoryService history = mock(DownloadCompletionHistoryService.class);
         NotificationSender sender = mock(NotificationSender.class);
+        org.mockito.Mockito.doCallRealMethod().when(sender).submit(org.mockito.ArgumentMatchers.any());
         DownloadCompletionRecord pending = pending(4, NOW);
         when(history.nextPending(NOW)).thenReturn(Optional.of(pending));
         doThrow(new IllegalStateException("SMTP unavailable")).when(sender)

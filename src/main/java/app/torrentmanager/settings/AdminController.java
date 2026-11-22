@@ -3,6 +3,7 @@ package app.torrentmanager.settings;
 import app.torrentmanager.analytics.ManagerActionHistoryService;
 import app.torrentmanager.monitoring.DownloadCompletionHistoryService;
 import app.torrentmanager.notification.EmailNotificationSender;
+import app.torrentmanager.notification.TelegramClient;
 import app.torrentmanager.qbit.*;
 import app.torrentmanager.report.*;
 import org.springframework.http.HttpStatus;
@@ -23,12 +24,13 @@ public class AdminController {
     private final ManagerActionHistoryService actions;
     private final DailyReportService reports;
     private final EmailNotificationSender mail;
+    private final TelegramClient telegram;
 
     public AdminController(RuntimeSettingsService settings, QBitClient qbit, StorageCapacityService storage,
             DownloadCompletionHistoryService history, ManagerActionHistoryService actions,
-            DailyReportService reports, EmailNotificationSender mail) {
+            DailyReportService reports, EmailNotificationSender mail, TelegramClient telegram) {
         this.settings = settings; this.qbit = qbit; this.storage = storage;
-        this.history = history; this.actions = actions; this.reports = reports; this.mail = mail;
+        this.history = history; this.actions = actions; this.reports = reports; this.mail = mail; this.telegram = telegram;
     }
 
     @GetMapping("/settings") public RuntimeSettingsService.View settings() { return settings.view(); }
@@ -103,9 +105,16 @@ public class AdminController {
         catch (jakarta.mail.MessagingException exception) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Не удалось подключиться к SMTP. Проверьте сервер, порт и учётные данные."); }
         return Map.of("message", "SMTP доступен. Проверка выполнена без отправки письма.");
     }
+    @PostMapping("/test/telegram") public Map<String, String> testTelegram() {
+        try { telegram.test(); }
+        catch (TelegramClient.TelegramDeliveryException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage());
+        }
+        return Map.of("message", "Telegram подтвердил отправку тестового сообщения");
+    }
     @PostMapping("/reports/send") public Map<String, String> report() {
-        reports.sendManual();
-        return Map.of("message", "Отчёт отправлен");
+        boolean queued = reports.sendManual();
+        return Map.of("message", queued ? "Отчёт поставлен в очередь доставки" : "Отчёт отправлен");
     }
 
     @GetMapping("/reports/status") public ReportStatusResponse reportStatus() { return reports.status(); }

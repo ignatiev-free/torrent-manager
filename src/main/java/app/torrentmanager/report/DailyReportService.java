@@ -94,7 +94,7 @@ public class DailyReportService {
         }
     }
 
-    public synchronized void sendManual() {
+    public synchronized boolean sendManual() {
         if (runtimeSettings != null && !runtimeSettings.notificationsAllowed()) {
             throw new ReportUnavailableException("Уведомления выключены или временно заглушены. Включите их перед отправкой отчёта.");
         }
@@ -105,12 +105,13 @@ public class DailyReportService {
         }
         try {
             Instant from = reportFrom(now);
-            sender.send(buildMessage("Torrent Manager — внеплановый отчёт на "
+            boolean queued = sender.submit(buildMessage("Torrent Manager — внеплановый отчёт на "
                     + SUBJECT_DATE.format(now.atZone(clock.getZone())), from, now));
             state = new DailyReportState(state.lastDailyReportDate(), state.lastDailyReportAt(),
-                    now, "DELIVERED", null, state.progressBaseline());
+                    now, queued ? "QUEUED" : "DELIVERED", null, state.progressBaseline());
             stateStore.save(state);
-            log.info("Внеплановый отчёт отправлен (канал={})", sender.channel());
+            log.info("Внеплановый отчёт {}", queued ? "поставлен в очередь" : "отправлен");
+            return queued;
         } catch (RuntimeException exception) {
             recordFailure(exception);
             throw exception;
@@ -157,14 +158,14 @@ public class DailyReportService {
         Instant to = now.toInstant();
         Instant from = reportFrom(to);
         List<TorrentAnalyticsRecord> analytics = analyticsService.snapshot();
-        sender.send(buildMessage("Torrent Manager — ежедневный отчёт за "
+        boolean queued = sender.submit(buildMessage("Torrent Manager — ежедневный отчёт за "
                 + now.toLocalDate(), from, to));
         Map<String, Double> baseline = new LinkedHashMap<>();
         analytics.forEach(record -> baseline.put(record.hash(), record.progress()));
         state = new DailyReportState(now.toLocalDate(), to, state.lastManualReportAt(),
-                "DELIVERED", null, baseline);
+                queued ? "QUEUED" : "DELIVERED", null, baseline);
         stateStore.save(state);
-        log.info("Ежедневный отчёт отправлен за {} (канал={})", now.toLocalDate(), sender.channel());
+        log.info("Ежедневный отчёт за {} {}", now.toLocalDate(), queued ? "поставлен в очередь" : "отправлен");
     }
 
     private NotificationMessage buildMessage(String subject, Instant from, Instant to) {
@@ -179,7 +180,9 @@ public class DailyReportService {
                 state.progressBaseline(), storage);
         String html = formatter.formatHtml(from, to, completions, analytics, actions,
                 state.progressBaseline(), storage);
-        return new NotificationMessage(subject, text, html);
+        return new NotificationMessage(subject, text, html,
+                formatter.formatTelegram(from, to, completions, analytics, storage),
+                subject.startsWith("Torrent Manager — внеплановый") ? "Внеплановый отчёт" : "Ежедневный отчёт");
     }
 
     private Instant reportFrom(Instant now) {

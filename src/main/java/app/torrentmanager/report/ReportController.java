@@ -45,8 +45,8 @@ public class ReportController {
         }
         verifyToken(authorization);
         try {
-            reportService.sendManual();
-            return Map.of("status", "sent");
+            boolean queued = reportService.sendManual();
+            return Map.of("status", queued ? "queued" : "sent");
         } catch (IllegalStateException exception) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     exception.getMessage(), exception);

@@ -143,7 +143,9 @@ public class DownloadStallAlertService {
                         observed.toMinutes(),
                         active,
                         queued,
-                        formatTime(now)), html);
+                        formatTime(now)), html,
+                "⏱ Без нормальной скорости: %d мин.\n⚡ Скорость: %d КиБ/с\n├ Активных: %d\n└ В очереди: %d"
+                        .formatted(observed.toMinutes(), speed / 1024, active, queued), "⚠️ Загрузки простаивают");
         try {
             sender.send(message);
             alertSent = true;
@@ -170,7 +172,9 @@ public class DownloadStallAlertService {
                             Скорость: %d KiB/s
                             Незавершённых активных или ожидающих: %d
                             Время: %s
-                            """.formatted(speed / 1024, pendingCount, formatTime(now)), html));
+                            """.formatted(speed / 1024, pendingCount, formatTime(now)), html,
+                    "⚡ Скорость: %d КиБ/с\n📦 Активных и в очереди: %d".formatted(speed / 1024, pendingCount),
+                    "✅ Скорость восстановилась"));
             log.info("Отправлено уведомление о восстановлении скорости: {} KiB/s", speed / 1024);
             resetIncident();
         } catch (RuntimeException exception) {
@@ -188,7 +192,8 @@ public class DownloadStallAlertService {
                 sender.send(new NotificationMessage(
                         "Torrent Manager: активных загрузок больше нет",
                         "После предупреждения об остановке скорости не осталось активных или ожидающих загрузок.\n\n"
-                                + "Время: " + formatTime(now), html));
+                                + "Время: " + formatTime(now), html, "В qBittorrent больше нет активных или ожидающих загрузок.",
+                        "ℹ️ Предупреждение о простое закрыто"));
             } catch (RuntimeException exception) {
                 log.error("Не удалось отправить уведомление о завершении инцидента: {}",
                         exception.getMessage(), exception);
