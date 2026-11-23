@@ -80,7 +80,7 @@ class TelegramCommandService {
         this.analytics = analytics;
         this.managerState = managerState;
         this.cursor = cursor.toAbsolutePath();
-        this.speedTimer = this.cursor.resolveSibling("telegram-speed-timer");
+        this.speedTimer = SpeedTimer.pathFor(this.cursor);
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -243,7 +243,7 @@ class TelegramCommandService {
                 applySpeed(desired, period);
             }
             transfer = qbit.getTransferInfo();
-            timer = readSpeedTimer();
+            timer = SpeedTimer.read(speedTimer);
         }
         long actual = transfer.downloadRateLimit();
         String title = desired < 0 ? "⚡ Управление скоростью"
@@ -279,7 +279,7 @@ class TelegramCommandService {
             var morning = local.toLocalDate().atTime(8, 0).atZone(local.getZone());
             until = (morning.isAfter(local) ? morning : morning.plusDays(1)).toInstant();
         }
-        SpeedTimer existing = readSpeedTimer();
+        SpeedTimer existing = SpeedTimer.read(speedTimer);
         long previous = existing != null && existing.alternative() == alternative && existing.applied() == current
                 ? existing.previous() : current;
         saveSpeedTimer(new SpeedTimer(previous, desired, alternative, until));
@@ -290,7 +290,7 @@ class TelegramCommandService {
     void restoreSpeed() {
         synchronized (qbit) {
             try {
-                SpeedTimer timer = readSpeedTimer();
+                SpeedTimer timer = SpeedTimer.read(speedTimer);
                 if (timer == null) return;
                 boolean alternative = qbit.alternativeSpeedMode();
                 long current = qbit.getTransferInfo().downloadRateLimit();
@@ -303,17 +303,6 @@ class TelegramCommandService {
             } catch (RuntimeException exception) {
                 log.warn("Не удалось проверить таймер скорости: {}", exception.getClass().getSimpleName());
             }
-        }
-    }
-
-    private SpeedTimer readSpeedTimer() {
-        try {
-            if (!Files.exists(speedTimer)) return null;
-            String[] fields = Files.readString(speedTimer).strip().split(" ");
-            return new SpeedTimer(Long.parseLong(fields[0]), Long.parseLong(fields[1]),
-                    Boolean.parseBoolean(fields[2]), Instant.parse(fields[3]));
-        } catch (IOException exception) {
-            throw new java.io.UncheckedIOException(exception);
         }
     }
 
@@ -340,8 +329,6 @@ class TelegramCommandService {
             throw new java.io.UncheckedIOException(exception);
         }
     }
-
-    private record SpeedTimer(long previous, long applied, boolean alternative, Instant until) { }
 
     private String mainMenu() {
         String title = "⚡ Torrent Manager";
