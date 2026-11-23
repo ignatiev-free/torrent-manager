@@ -63,7 +63,7 @@ class TelegramCommandService {
     private final TorrentAnalyticsService analytics;
     private final ManagerStateStore managerState;
     private final Path cursor;
-    private final Path speedTimer;
+    private final SpeedSnapshotService speedService;
     private Thread poller;
 
     TelegramCommandService(TelegramClient telegram, RuntimeSettingsService settings, QBitClient qbit,
@@ -71,6 +71,16 @@ class TelegramCommandService {
                            StorageCapacityService storage, TorrentAnalyticsService analytics,
                            ManagerStateStore managerState,
                            @Value("${telegram-notifications.command-state-file}") Path cursor) {
+        this(telegram, settings, qbit, reports, history, storage, analytics, managerState, cursor,
+                new SpeedSnapshotService(qbit, cursor));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    TelegramCommandService(TelegramClient telegram, RuntimeSettingsService settings, QBitClient qbit,
+                           DailyReportService reports, DownloadCompletionHistoryService history,
+                           StorageCapacityService storage, TorrentAnalyticsService analytics,
+                           ManagerStateStore managerState,
+                           @Value("${telegram-notifications.command-state-file}") Path cursor, SpeedSnapshotService speedService) {
         this.telegram = telegram;
         this.settings = settings;
         this.qbit = qbit;
@@ -80,7 +90,7 @@ class TelegramCommandService {
         this.analytics = analytics;
         this.managerState = managerState;
         this.cursor = cursor.toAbsolutePath();
-        this.speedTimer = SpeedTimer.pathFor(this.cursor);
+        this.speedService = speedService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -231,8 +241,8 @@ class TelegramCommandService {
 
     private void speed(Map<String, String> config, String action, String period) {
         long desired = action == null ? -1 : switch (action) {
-            case "speed:work" -> 8000 * 1024L;
-            case "speed:min" -> 3000 * 1024L;
+            case "speed:work" -> SpeedSnapshotService.Profile.WORK.bytesPerSecond;
+            case "speed:min" -> SpeedSnapshotService.Profile.MIN.bytesPerSecond;
             default -> 0;
         };
         app.torrentmanager.qbit.TransferInfo transfer;
@@ -240,10 +250,10 @@ class TelegramCommandService {
         synchronized (qbit) {
             if (desired >= 0) {
                 if (!stillAuthorized(config)) return;
-                applySpeed(desired, period);
+                speedService.applyLegacy(desired, period);
             }
             transfer = qbit.getTransferInfo();
-            timer = SpeedTimer.read(speedTimer);
+            timer = speedService.timer();
         }
         long actual = transfer.downloadRateLimit();
         String title = desired < 0 ? "⚡ Управление скоростью"
@@ -254,7 +264,7 @@ class TelegramCommandService {
             text += "\n⏱ Возврат лимита: " + COMPLETION_TIME.format(timer.until());
         }
         var buttons = new java.util.ArrayList<List<Button>>();
-        long[] limits = {0, 8000 * 1024L, 3000 * 1024L};
+        long[] limits = {0, SpeedSnapshotService.Profile.WORK.bytesPerSecond, SpeedSnapshotService.Profile.MIN.bytesPerSecond};
         for (int i = 0; i < SPEEDS.size(); i++) {
             var option = SPEEDS.get(i);
             buttons.add(List.of(new Button((actual == limits[i] ? "✓ " : "") + option.label(), option.action())));
@@ -263,72 +273,7 @@ class TelegramCommandService {
         send(config, text, buttons);
     }
 
-    private void applySpeed(long desired, String period) {
-        boolean alternative = qbit.alternativeSpeedMode();
-        long current = qbit.getTransferInfo().downloadRateLimit();
-        if ("manual".equals(period)) {
-            qbit.setDownloadLimit(desired, alternative);
-            clearSpeedTimer();
-            return;
-        }
-
-        Instant now = Instant.now();
-        Instant until = now.plus(Duration.ofHours(1));
-        if ("morning".equals(period)) {
-            var local = now.atZone(ZoneId.systemDefault());
-            var morning = local.toLocalDate().atTime(8, 0).atZone(local.getZone());
-            until = (morning.isAfter(local) ? morning : morning.plusDays(1)).toInstant();
-        }
-        SpeedTimer existing = SpeedTimer.read(speedTimer);
-        long previous = existing != null && existing.alternative() == alternative && existing.applied() == current
-                ? existing.previous() : current;
-        saveSpeedTimer(new SpeedTimer(previous, desired, alternative, until));
-        qbit.setDownloadLimit(desired, alternative);
-    }
-
-    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 15000)
-    void restoreSpeed() {
-        synchronized (qbit) {
-            try {
-                SpeedTimer timer = SpeedTimer.read(speedTimer);
-                if (timer == null) return;
-                boolean alternative = qbit.alternativeSpeedMode();
-                long current = qbit.getTransferInfo().downloadRateLimit();
-                if (alternative != timer.alternative() || current != timer.applied()) {
-                    clearSpeedTimer();
-                } else if (!Instant.now().isBefore(timer.until())) {
-                    qbit.setDownloadLimit(timer.previous(), alternative);
-                    if (qbit.getTransferInfo().downloadRateLimit() == timer.previous()) clearSpeedTimer();
-                }
-            } catch (RuntimeException exception) {
-                log.warn("Не удалось проверить таймер скорости: {}", exception.getClass().getSimpleName());
-            }
-        }
-    }
-
-    private void saveSpeedTimer(SpeedTimer timer) {
-        try {
-            Files.createDirectories(speedTimer.getParent());
-            Path temp = Files.createTempFile(speedTimer.getParent(), "telegram-speed-", ".tmp");
-            try {
-                Files.writeString(temp, timer.previous() + " " + timer.applied() + " "
-                        + timer.alternative() + " " + timer.until());
-                Files.move(temp, speedTimer, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } finally {
-                Files.deleteIfExists(temp);
-            }
-        } catch (IOException exception) {
-            throw new java.io.UncheckedIOException(exception);
-        }
-    }
-
-    private void clearSpeedTimer() {
-        try {
-            Files.deleteIfExists(speedTimer);
-        } catch (IOException exception) {
-            throw new java.io.UncheckedIOException(exception);
-        }
-    }
+    void restoreSpeed() { speedService.restoreSpeed(); }
 
     private String mainMenu() {
         String title = "⚡ Torrent Manager";

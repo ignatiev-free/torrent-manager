@@ -131,6 +131,15 @@ public class DailyReportService {
                 next, mailAllowed && !waiting, reason);
     }
 
+    public synchronized IntegrationStatus integrationStatus() {
+        var view = status();
+        return new IntegrationStatus(state.lastDailyReportAt(), state.lastManualReportAt(), view.lastDeliveryStatus(),
+                view.nextManualReportAt(), view.manualAvailable());
+    }
+
+    public record IntegrationStatus(Instant lastDailyReport, Instant lastManualReport, String lastDeliveryStatus,
+                                    Instant nextManualReportAt, boolean manualAvailable) { }
+
     private ReportCooldownException cooldown(Instant now) {
         Instant next = state.lastManualReportAt().plus(properties().manualCooldown());
         var remaining = java.time.Duration.between(now, next);
