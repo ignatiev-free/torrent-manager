@@ -29,14 +29,22 @@ public class IntegrationSpeedController {
     private final byte[] writeAuthorization;
     private final TorrentIntegrationQueries queries;
     private final IntegrationOperations operations;
+    private final app.torrentmanager.notification.NotificationDeliveryService notifications;
 
     IntegrationSpeedController(SpeedSnapshotService speed, Environment environment) {
         this(speed, environment, null, null);
     }
 
+    IntegrationSpeedController(SpeedSnapshotService speed, Environment environment,
+                               TorrentIntegrationQueries queries, IntegrationOperations operations) {
+        this(speed, environment, queries, operations, null);
+    }
+
     @Autowired
     public IntegrationSpeedController(SpeedSnapshotService speed, Environment environment,
-                                      TorrentIntegrationQueries queries, IntegrationOperations operations) {
+                                      TorrentIntegrationQueries queries, IntegrationOperations operations,
+                                      app.torrentmanager.notification.NotificationDeliveryService notifications) {
+        this.notifications = notifications;
         this.queries = queries;
         this.operations = operations;
         String writeToken = environment.getProperty("TORRENT_INTEGRATION_WRITE_TOKEN");
@@ -93,6 +101,24 @@ public class IntegrationSpeedController {
         return write(token, key, HttpStatus.ACCEPTED, () -> new ReportAccepted(queries.sendReport()));
     }
 
+    @GetMapping("/api/integration/v1/notifications")
+    ResponseEntity<?> notifications(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String token)
+            throws java.io.IOException {
+        var denied = authorize(token, false);
+        return denied != null ? denied : response(HttpStatus.OK, new Events(notifications.pendingForAssistant()));
+    }
+
+    @PostMapping("/api/integration/v1/notifications/{id}/ack")
+    ResponseEntity<?> acknowledge(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String token,
+            @org.springframework.web.bind.annotation.PathVariable UUID id) throws java.io.IOException {
+        var denied = authorize(token, true);
+        if (denied != null) return denied;
+        return notifications.acknowledgeAssistant(id) ? response(HttpStatus.OK, new Acknowledged(true))
+                : error(HttpStatus.CONFLICT, "NOT_INTEGRATED_MODE");
+    }
+
+    record Events(java.util.List<app.torrentmanager.notification.NotificationDeliveryService.Event> items) { }
+    record Acknowledged(boolean accepted) { }
     private ResponseEntity<?> read(String token, Supplier<?> action) {
         var denied = authorize(token, false);
         return denied == null ? response(HttpStatus.OK, action.get()) : denied;
@@ -142,7 +168,7 @@ public class IntegrationSpeedController {
     }
 
     record ReportAccepted(boolean queued) { }
-    @ExceptionHandler(RuntimeException.class)
+    @ExceptionHandler({RuntimeException.class, java.io.IOException.class})
     ResponseEntity<ApiError> unavailable() {
         return error(HttpStatus.SERVICE_UNAVAILABLE, "INTEGRATION_UNAVAILABLE");
     }

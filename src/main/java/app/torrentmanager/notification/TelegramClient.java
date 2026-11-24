@@ -22,11 +22,13 @@ public class TelegramClient {
     private static final Set<String> REPORT_HEADINGS = Set.of("Готовые загрузки", "Требуют внимания", "Место на дисках");
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
+    private final TelegramMode mode;
     private final RuntimeSettingsService settings;
     private final ObjectMapper json;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
-    public TelegramClient(RuntimeSettingsService settings, ObjectMapper json) {
+    public TelegramClient(RuntimeSettingsService settings, ObjectMapper json, TelegramMode mode) {
+        this.mode = mode;
         this.settings = settings;
         this.json = json;
     }
@@ -73,6 +75,7 @@ public class TelegramClient {
     }
 
     private JsonNode call(Map<String, String> config, String method, Map<String, ?> body, Duration timeout) {
+        if (mode.integrated()) throw new TelegramDeliveryException("Telegram disabled in integrated mode");
         String token = config.get("telegram-notifications.bot-token");
         String chat = config.get("telegram-notifications.chat-id");
         if (token == null || !token.matches("[0-9]+:[A-Za-z0-9_-]+") || chat == null || chat.isBlank()) {

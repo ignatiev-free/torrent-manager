@@ -32,16 +32,25 @@ public class NotificationDeliveryService implements NotificationSender {
     private final ObjectMapper json;
     private final Path directory;
     private final Clock clock;
+    private final TelegramMode mode;
 
     @Autowired
     public NotificationDeliveryService(RuntimeSettingsService settings, TelegramClient telegram,
                                        EmailNotificationSender email, ObjectMapper json,
-                                       @Value("${telegram-notifications.queue-directory}") Path directory) {
-        this(settings, telegram, email, json, directory, Clock.systemUTC());
+                                       @Value("${telegram-notifications.queue-directory}") Path directory,
+                                       TelegramMode mode) {
+        this(settings, telegram, email, json, directory, Clock.systemUTC(), mode);
     }
 
     NotificationDeliveryService(RuntimeSettingsService settings, TelegramClient telegram,
                                 EmailNotificationSender email, ObjectMapper json, Path directory, Clock clock) {
+        this(settings, telegram, email, json, directory, clock, new TelegramMode(TelegramMode.Mode.AUTONOMOUS));
+    }
+
+    NotificationDeliveryService(RuntimeSettingsService settings, TelegramClient telegram,
+                                EmailNotificationSender email, ObjectMapper json, Path directory, Clock clock,
+                                TelegramMode mode) {
+        this.mode = mode;
         this.settings = settings;
         this.telegram = telegram;
         this.email = email;
@@ -52,7 +61,7 @@ public class NotificationDeliveryService implements NotificationSender {
 
     @Override
     public String channel() {
-        return telegramEnabled() ? "TELEGRAM" : email.channel();
+        return mode.integrated() ? "ASSISTANT" : telegramEnabled() ? "TELEGRAM" : email.channel();
     }
 
     @Override
@@ -65,7 +74,7 @@ public class NotificationDeliveryService implements NotificationSender {
         if (!settings.notificationsAllowed()) {
             throw new EmailNotificationSender.NotificationsSuppressedException();
         }
-        if (!telegramEnabled()) {
+        if (!mode.integrated() && !telegramEnabled()) {
             email.send(message);
             return false;
         }
@@ -84,7 +93,7 @@ public class NotificationDeliveryService implements NotificationSender {
 
     @Scheduled(fixedDelayString = "5s")
     void deliverPending() {
-        if (!Files.isDirectory(directory)) return;
+        if (mode.integrated() || !Files.isDirectory(directory)) return;
         try (var files = Files.newDirectoryStream(directory, "*.json")) {
             for (Path file : files) {
                 try {
@@ -145,6 +154,37 @@ public class NotificationDeliveryService implements NotificationSender {
         log.info("Уведомление отправлено через {}", useTelegram ? "Telegram" : "SMTP");
     }
 
+    public synchronized java.util.List<Event> pendingForAssistant() throws IOException {
+        if (!mode.integrated() || !settings.notificationsAllowed() || !Files.isDirectory(directory)) {
+            return java.util.List.of();
+        }
+        var events = new java.util.ArrayList<Event>();
+        String cutoff = settings.value("control.notifications-suppressed-before");
+        try (var files = Files.newDirectoryStream(directory, "*.json")) {
+            for (Path path : files) {
+                try {
+                    UUID id = UUID.fromString(path.getFileName().toString().replaceFirst("\\.json$", ""));
+                    var pending = json.readValue(path.toFile(), PendingNotification.class);
+                    if (cutoff != null && !cutoff.isBlank() && !pending.createdAt().isAfter(Instant.parse(cutoff))) {
+                        continue;
+                    }
+                    events.add(new Event(id, pending.createdAt(), pending.message().telegramText()));
+                    if (events.size() == 10) break;
+                } catch (IllegalArgumentException | tools.jackson.core.JacksonException invalid) {
+                    log.warn("Could not read a queued integration notification");
+                }
+            }
+        }
+        return java.util.List.copyOf(events);
+    }
+
+    public synchronized boolean acknowledgeAssistant(UUID id) throws IOException {
+        if (!mode.integrated()) return false;
+        Files.deleteIfExists(directory.resolve(id + ".json"));
+        return true;
+    }
+
+    public record Event(UUID id, Instant createdAt, String text) { }
     private boolean telegramEnabled() {
         return Boolean.parseBoolean(settings.value("telegram-notifications.enabled"));
     }

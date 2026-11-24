@@ -86,6 +86,31 @@ class NotificationDeliveryServiceTests {
         verifyNoInteractions(telegram);
     }
 
+    @Test
+    void integratedModeKeepsEventsAcrossRestartAndOnlyAssistantAcknowledges() throws Exception {
+        var mode = new TelegramMode(TelegramMode.Mode.INTEGRATED);
+        var json = JsonMapper.builder().build();
+        var clock = Clock.fixed(START, ZoneOffset.UTC);
+        var first = new NotificationDeliveryService(settings, telegram, email, json, queue, clock, mode);
+        assertThat(first.submit(MESSAGE)).isTrue();
+        first.deliverPending();
+        var restarted = new NotificationDeliveryService(settings, telegram, email, json, queue, clock, mode);
+        var event = restarted.pendingForAssistant().getFirst();
+        assertThat(event.text()).isEqualTo(MESSAGE.telegramText());
+        assertThat(first.pendingForAssistant().getFirst().id()).isEqualTo(event.id());
+        assertThat(restarted.acknowledgeAssistant(event.id())).isTrue();
+        assertThat(restarted.acknowledgeAssistant(event.id())).isTrue();
+        assertThat(first.pendingForAssistant()).isEmpty();
+        verifyNoInteractions(telegram, email);
+    }
+
+    @Test
+    void directTelegramHttpIsBlockedInIntegratedMode() {
+        var mode = new TelegramMode(TelegramMode.Mode.INTEGRATED);
+        var client = new TelegramClient(settings, JsonMapper.builder().build(), mode);
+        org.junit.jupiter.api.Assertions.assertThrows(TelegramClient.TelegramDeliveryException.class,
+                () -> client.updates(java.util.Map.of(), 0));
+    }
     private NotificationDeliveryService workerAt(long seconds) {
         return new NotificationDeliveryService(settings, telegram, email, JsonMapper.builder().build(),
                 queue, Clock.fixed(START.plusSeconds(seconds), ZoneOffset.UTC));

@@ -33,6 +33,8 @@ import java.util.Map;
 import static app.torrentmanager.notification.TelegramClient.Button;
 
 @Component
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+        name = "torrent-manager.telegram-mode", havingValue = "AUTONOMOUS", matchIfMissing = true)
 class TelegramCommandService {
     private static final Logger log = LoggerFactory.getLogger(TelegramCommandService.class);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);

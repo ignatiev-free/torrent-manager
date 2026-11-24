@@ -23,6 +23,7 @@ public class RuntimeSettingsService {
     private final Map<String, String> defaults = new LinkedHashMap<>();
     private final List<Class<?>> types;
     private final Path file;
+    private final boolean integratedTelegram;
     private final ApplicationEventPublisher events;
     private volatile Snapshot state;
 
@@ -31,6 +32,7 @@ public class RuntimeSettingsService {
             StorageReportProperties storage, QBitProperties qbit, TorrentAnalyticsProperties analytics,
             Environment environment, ApplicationEventPublisher events) {
         this.events = events;
+        this.integratedTelegram = "INTEGRATED".equalsIgnoreCase(environment.getProperty("torrent-manager.telegram-mode"));
         var originals = List.of(manager, email, stall, report, storage, qbit, analytics);
         types = originals.stream().map(Object::getClass).toList();
         for (Object original : originals) {
@@ -180,12 +182,12 @@ public class RuntimeSettingsService {
     }
 
     private void validate(Map<String, String> values, Map<Class<?>, Object> typed) {
-        if (Boolean.parseBoolean(values.get("telegram-notifications.enabled"))
+        if (!integratedTelegram && Boolean.parseBoolean(values.get("telegram-notifications.enabled"))
                 && (!values.get("telegram-notifications.bot-token").matches("[0-9]+:[A-Za-z0-9_-]+")
                 || values.get("telegram-notifications.chat-id").isBlank())) {
             throw new IllegalArgumentException("Для включения Telegram укажите токен бота и ID чата");
         }
-        if (Boolean.parseBoolean(values.get("telegram-notifications.commands-enabled"))
+        if (!integratedTelegram && Boolean.parseBoolean(values.get("telegram-notifications.commands-enabled"))
                 && (!Boolean.parseBoolean(values.get("telegram-notifications.enabled"))
                 || !values.get("telegram-notifications.chat-id").matches("[1-9][0-9]*"))) {
             throw new IllegalArgumentException("Для команд включите Telegram и укажите ID личного чата");
