@@ -45,12 +45,15 @@ public class TorrentIntegrationQueries {
                 .filter(t -> t.downloadSpeed() <= 0).count(), list.stream().filter(Torrent::isQueuedForDownload).count());
     }
 
-    Page<Download> downloads(int page) {
+    Page<Download> downloads(int page, String query) {
+        if (query.length() > 160) throw new IllegalArgumentException("Search query is too long");
+        String name = query.strip().toLowerCase(java.util.Locale.ROOT);
         var retries = queue.load();
         var records = analytics.snapshot().stream().filter(r -> r.lastProgressAt() != null)
                 .collect(Collectors.toMap(r -> r.hash(), r -> r.lastProgressAt(), (left, right) -> left));
         var rows = qbit.getTorrents().stream()
-                .filter(t -> t.isActivelyDownloading() || t.isQueuedForDownload()
+                .filter(t -> !name.isEmpty() ? t.name().toLowerCase(java.util.Locale.ROOT).contains(name)
+                        : t.isActivelyDownloading() || t.isQueuedForDownload()
                         || (!t.isComplete() && retries.containsKey(t.hash())
                             && ("stoppedDL".equals(t.state()) || "pausedDL".equals(t.state()))))
                 .sorted(Comparator.comparingLong(Torrent::downloadSpeed).reversed().thenComparing(Torrent::hash))

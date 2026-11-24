@@ -123,6 +123,30 @@ class IntegrationSpeedControllerTests {
         restarted.perform(get("/api/integration/v1/downloads?page=invalid").header("Authorization", read))
                 .andExpect(status().isBadRequest());
     }
+    @Test
+    void searchesCompletedTorrentsByNameWithoutChangingTheDefaultList() throws Exception {
+        var qbit = mock(QBitClient.class);
+        when(qbit.getTorrents()).thenReturn(java.util.List.of(
+                new app.torrentmanager.qbit.Torrent("a", "Dune & part two", "uploading", 1, 0, 0, 0, 0),
+                new app.torrentmanager.qbit.Torrent("b", "Other", "downloading", 0.5, 1024, 0, 0, 0)));
+        var speed = new SpeedSnapshotService(qbit, data.resolve("cursor"));
+        var queries = new TorrentIntegrationQueries(qbit, speed,
+                mock(app.torrentmanager.manager.ManagerStateStore.class),
+                mock(app.torrentmanager.analytics.TorrentAnalyticsService.class), null, null, null);
+        var config = new MockEnvironment().withProperty("TORRENT_INTEGRATION_TOKEN", SECRET)
+                .withProperty("TORRENT_INTEGRATION_SCOPES", "torrent:read");
+        var api = MockMvcBuilders.standaloneSetup(new IntegrationSpeedController(speed, config, queries,
+                new IntegrationOperations(data.resolve("settings")))).build();
+        String path = "/api/integration/v1/downloads";
+        api.perform(get(path).param("query", "DUNE &")).andExpect(status().isUnauthorized());
+        api.perform(get(path).header("Authorization", "Bearer " + SECRET).param("query", "DUNE &"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("Dune & part two"));
+        api.perform(get(path).header("Authorization", "Bearer " + SECRET))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("Other"));
+    }
+
     private static org.springframework.test.web.servlet.MockMvc mvc(
             SpeedSnapshotService speed, MockEnvironment config) {
         return MockMvcBuilders.standaloneSetup(new IntegrationSpeedController(speed, config)).build();

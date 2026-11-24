@@ -68,8 +68,9 @@ public class IntegrationSpeedController {
 
     @GetMapping("/api/integration/v1/downloads")
     ResponseEntity<?> downloads(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String token,
-                                @RequestParam(defaultValue = "0") int page) {
-        return read(token, () -> queries.downloads(page));
+                                @RequestParam(defaultValue = "0") int page,
+                                @RequestParam(defaultValue = "") String query) {
+        return read(token, () -> queries.downloads(page, query));
     }
 
     @GetMapping("/api/integration/v1/completions")
