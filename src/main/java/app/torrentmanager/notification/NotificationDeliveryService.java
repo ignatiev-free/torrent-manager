@@ -88,13 +88,34 @@ public class NotificationDeliveryService implements NotificationSender {
             return true;
         } catch (IOException | tools.jackson.core.JacksonException exception) {
             throw new IllegalStateException("Не удалось сохранить уведомление в очередь");
+        } finally {
+            if (mode.integrated()) {
+                try {
+                    email.send(message);
+                } catch (RuntimeException failure) {
+                    var attemptedAt = clock.instant();
+                    try {
+                        Files.createDirectories(directory);
+                        save(directory.resolve(UUID.randomUUID() + ".smtp"),
+                                new PendingNotification(message, now, attemptedAt.plusSeconds(60), 1));
+                        log.warn("SMTP: первая попытка не удалась ({}), повтор поставлен в очередь",
+                                failure.getClass().getSimpleName());
+                    } catch (IOException | tools.jackson.core.JacksonException spoolFailure) {
+                        log.error("SMTP: не удалось сохранить повторную попытку ({})",
+                                spoolFailure.getClass().getSimpleName());
+                    }
+                }
+            }
         }
     }
 
     @Scheduled(fixedDelayString = "5s")
     void deliverPending() {
-        if (mode.integrated() || !Files.isDirectory(directory)) return;
-        try (var files = Files.newDirectoryStream(directory, "*.json")) {
+        if (!Files.isDirectory(directory)) return;
+        try (var files = Files.newDirectoryStream(directory, path -> {
+            String name = path.getFileName().toString();
+            return name.endsWith(".smtp") || !mode.integrated() && name.endsWith(".json");
+        })) {
             for (Path file : files) {
                 try {
                     deliver(file, json.readValue(file.toFile(), PendingNotification.class));
@@ -117,7 +138,8 @@ public class NotificationDeliveryService implements NotificationSender {
 
         Instant now = clock.instant();
         Instant deadline = pending.createdAt().plus(TELEGRAM_WINDOW);
-        boolean useTelegram = telegramEnabled() && pending.emailFailures() == 0 && now.isBefore(deadline);
+        boolean useTelegram = !file.getFileName().toString().endsWith(".smtp")
+                && telegramEnabled() && pending.emailFailures() == 0 && now.isBefore(deadline);
         if (now.isBefore(pending.nextAttempt()) && (useTelegram || pending.emailFailures() > 0)) return;
 
         if (useTelegram) {

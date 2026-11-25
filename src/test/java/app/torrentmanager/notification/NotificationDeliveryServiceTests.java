@@ -101,9 +101,36 @@ class NotificationDeliveryServiceTests {
         assertThat(restarted.acknowledgeAssistant(event.id())).isTrue();
         assertThat(restarted.acknowledgeAssistant(event.id())).isTrue();
         assertThat(first.pendingForAssistant()).isEmpty();
-        verifyNoInteractions(telegram, email);
+        verifyNoInteractions(telegram);
+        verify(email).send(MESSAGE);
     }
 
+    @Test
+    void integratedModeKeepsTelegramEventWhenSmtpFails() throws Exception {
+        org.mockito.Mockito.doThrow(new IllegalStateException("fixture SMTP outage")).doNothing().when(email).send(MESSAGE);
+        var worker = new NotificationDeliveryService(settings, telegram, email, JsonMapper.builder().build(),
+                queue, Clock.fixed(START, ZoneOffset.UTC), new TelegramMode(TelegramMode.Mode.INTEGRATED));
+        assertThat(worker.submit(MESSAGE)).isTrue();
+        assertThat(worker.pendingForAssistant()).hasSize(1);
+        var event = worker.pendingForAssistant().getFirst();
+        assertThat(worker.acknowledgeAssistant(event.id())).isTrue();
+        var restarted = new NotificationDeliveryService(settings, telegram, email, JsonMapper.builder().build(),
+                queue, Clock.fixed(START.plusSeconds(61), ZoneOffset.UTC), new TelegramMode(TelegramMode.Mode.INTEGRATED));
+        restarted.deliverPending();
+        verify(email, org.mockito.Mockito.times(2)).send(MESSAGE);
+        assertThat(restarted.pendingForAssistant()).isEmpty();
+        verifyNoInteractions(telegram);
+    }
+
+    @Test
+    void integratedModeAttemptsEmailEvenWhenOutboxWriteFails() throws Exception {
+        var blocked = java.nio.file.Files.writeString(queue.resolve("blocked"), "not a directory");
+        var worker = new NotificationDeliveryService(settings, telegram, email, JsonMapper.builder().build(),
+                blocked, Clock.fixed(START, ZoneOffset.UTC), new TelegramMode(TelegramMode.Mode.INTEGRATED));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> worker.submit(MESSAGE));
+        verify(email).send(MESSAGE);
+        verifyNoInteractions(telegram);
+    }
     @Test
     void directTelegramHttpIsBlockedInIntegratedMode() {
         var mode = new TelegramMode(TelegramMode.Mode.INTEGRATED);
