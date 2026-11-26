@@ -109,6 +109,16 @@ public class IntegrationSpeedController {
         return denied != null ? denied : response(HttpStatus.OK, new Events(notifications.pendingForAssistant()));
     }
 
+    @PostMapping("/api/integration/v1/notifications/{id}/claim")
+    ResponseEntity<?> claim(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String token,
+            @org.springframework.web.bind.annotation.PathVariable UUID id) throws java.io.IOException {
+        var denied = authorize(token, true);
+        if (denied != null) return denied;
+        return response(HttpStatus.OK, new Claim(notifications.claimAssistant(id)));
+    }
+
+    record Claim(java.time.Instant sendBefore) { }
+
     @PostMapping("/api/integration/v1/notifications/{id}/ack")
     ResponseEntity<?> acknowledge(@RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String token,
             @org.springframework.web.bind.annotation.PathVariable UUID id) throws java.io.IOException {

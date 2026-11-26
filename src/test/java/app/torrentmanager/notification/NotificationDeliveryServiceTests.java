@@ -98,39 +98,46 @@ class NotificationDeliveryServiceTests {
         var event = restarted.pendingForAssistant().getFirst();
         assertThat(event.text()).isEqualTo(MESSAGE.telegramText());
         assertThat(first.pendingForAssistant().getFirst().id()).isEqualTo(event.id());
+        assertThat(restarted.claimAssistant(event.id())).isEqualTo(START.plusSeconds(285));
+        assertThat(first.claimAssistant(event.id())).isNull();
         assertThat(restarted.acknowledgeAssistant(event.id())).isTrue();
         assertThat(restarted.acknowledgeAssistant(event.id())).isTrue();
         assertThat(first.pendingForAssistant()).isEmpty();
-        verifyNoInteractions(telegram);
+        verifyNoInteractions(telegram, email);
+    }
+
+    @Test
+    void integratedModeFallsBackOnceAfterFiveMinutesEvenAfterUnacknowledgedClaim() throws Exception {
+        var mode = new TelegramMode(TelegramMode.Mode.INTEGRATED);
+        var json = JsonMapper.builder().build();
+        var first = new NotificationDeliveryService(settings, telegram, email, json,
+                queue, Clock.fixed(START, ZoneOffset.UTC), mode);
+        assertThat(first.submit(MESSAGE)).isTrue();
+        var event = first.pendingForAssistant().getFirst();
+        assertThat(first.claimAssistant(event.id())).isNotNull();
+        assertThat(first.pendingForAssistant()).isEmpty();
+        var beforeDeadline = new NotificationDeliveryService(settings, telegram, email, json,
+                queue, Clock.fixed(START.plusSeconds(299), ZoneOffset.UTC), mode);
+        beforeDeadline.deliverPending();
+        verifyNoInteractions(telegram, email);
+        var expired = new NotificationDeliveryService(settings, telegram, email, json,
+                queue, Clock.fixed(START.plusSeconds(300), ZoneOffset.UTC), mode);
+        assertThat(expired.claimAssistant(event.id())).isNull();
+        expired.deliverPending();
+        expired.deliverPending();
         verify(email).send(MESSAGE);
-    }
-
-    @Test
-    void integratedModeKeepsTelegramEventWhenSmtpFails() throws Exception {
-        org.mockito.Mockito.doThrow(new IllegalStateException("fixture SMTP outage")).doNothing().when(email).send(MESSAGE);
-        var worker = new NotificationDeliveryService(settings, telegram, email, JsonMapper.builder().build(),
-                queue, Clock.fixed(START, ZoneOffset.UTC), new TelegramMode(TelegramMode.Mode.INTEGRATED));
-        assertThat(worker.submit(MESSAGE)).isTrue();
-        assertThat(worker.pendingForAssistant()).hasSize(1);
-        var event = worker.pendingForAssistant().getFirst();
-        assertThat(worker.acknowledgeAssistant(event.id())).isTrue();
-        var restarted = new NotificationDeliveryService(settings, telegram, email, JsonMapper.builder().build(),
-                queue, Clock.fixed(START.plusSeconds(61), ZoneOffset.UTC), new TelegramMode(TelegramMode.Mode.INTEGRATED));
-        restarted.deliverPending();
-        verify(email, org.mockito.Mockito.times(2)).send(MESSAGE);
-        assertThat(restarted.pendingForAssistant()).isEmpty();
         verifyNoInteractions(telegram);
     }
 
     @Test
-    void integratedModeAttemptsEmailEvenWhenOutboxWriteFails() throws Exception {
+    void integratedModeDoesNotSendEmailWhenOutboxWriteFails() throws Exception {
         var blocked = java.nio.file.Files.writeString(queue.resolve("blocked"), "not a directory");
         var worker = new NotificationDeliveryService(settings, telegram, email, JsonMapper.builder().build(),
                 blocked, Clock.fixed(START, ZoneOffset.UTC), new TelegramMode(TelegramMode.Mode.INTEGRATED));
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> worker.submit(MESSAGE));
-        verify(email).send(MESSAGE);
-        verifyNoInteractions(telegram);
+        verifyNoInteractions(email, telegram);
     }
+
     @Test
     void directTelegramHttpIsBlockedInIntegratedMode() {
         var mode = new TelegramMode(TelegramMode.Mode.INTEGRATED);

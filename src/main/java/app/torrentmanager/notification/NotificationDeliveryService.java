@@ -88,24 +88,6 @@ public class NotificationDeliveryService implements NotificationSender {
             return true;
         } catch (IOException | tools.jackson.core.JacksonException exception) {
             throw new IllegalStateException("Не удалось сохранить уведомление в очередь");
-        } finally {
-            if (mode.integrated()) {
-                try {
-                    email.send(message);
-                } catch (RuntimeException failure) {
-                    var attemptedAt = clock.instant();
-                    try {
-                        Files.createDirectories(directory);
-                        save(directory.resolve(UUID.randomUUID() + ".smtp"),
-                                new PendingNotification(message, now, attemptedAt.plusSeconds(60), 1));
-                        log.warn("SMTP: первая попытка не удалась ({}), повтор поставлен в очередь",
-                                failure.getClass().getSimpleName());
-                    } catch (IOException | tools.jackson.core.JacksonException spoolFailure) {
-                        log.error("SMTP: не удалось сохранить повторную попытку ({})",
-                                spoolFailure.getClass().getSimpleName());
-                    }
-                }
-            }
         }
     }
 
@@ -114,11 +96,15 @@ public class NotificationDeliveryService implements NotificationSender {
         if (!Files.isDirectory(directory)) return;
         try (var files = Files.newDirectoryStream(directory, path -> {
             String name = path.getFileName().toString();
-            return name.endsWith(".smtp") || !mode.integrated() && name.endsWith(".json");
+            return name.endsWith(".smtp") || name.endsWith(".json");
         })) {
             for (Path file : files) {
                 try {
-                    deliver(file, json.readValue(file.toFile(), PendingNotification.class));
+                    Path ready = mode.integrated() && file.toString().endsWith(".json")
+                            ? reserveFallback(file) : file;
+                    if (ready != null) deliver(ready, json.readValue(ready.toFile(), PendingNotification.class));
+                } catch (java.nio.file.NoSuchFileException | java.io.FileNotFoundException removed) {
+                    // An ACK may remove an event between directory enumeration and reading.
                 } catch (IOException | RuntimeException exception) {
                     log.error("Не удалось обработать уведомление из очереди: {}", file.getFileName());
                 }
@@ -139,7 +125,7 @@ public class NotificationDeliveryService implements NotificationSender {
         Instant now = clock.instant();
         Instant deadline = pending.createdAt().plus(TELEGRAM_WINDOW);
         boolean useTelegram = !file.getFileName().toString().endsWith(".smtp")
-                && telegramEnabled() && pending.emailFailures() == 0 && now.isBefore(deadline);
+                && !mode.integrated() && telegramEnabled() && pending.emailFailures() == 0 && now.isBefore(deadline);
         if (now.isBefore(pending.nextAttempt()) && (useTelegram || pending.emailFailures() > 0)) return;
 
         if (useTelegram) {
@@ -176,6 +162,29 @@ public class NotificationDeliveryService implements NotificationSender {
         log.info("Уведомление отправлено через {}", useTelegram ? "Telegram" : "SMTP");
     }
 
+    private synchronized Path reserveFallback(Path file) throws IOException {
+        if (!Files.exists(file)) return null;
+        var pending = json.readValue(file.toFile(), PendingNotification.class);
+        if (clock.instant().isBefore(pending.createdAt().plus(TELEGRAM_WINDOW))) return null;
+        Path fallback = file.resolveSibling(file.getFileName().toString().replaceFirst("[.]json$", ".smtp"));
+        return Files.move(file, fallback);
+    }
+
+    public synchronized Instant claimAssistant(UUID id) throws IOException {
+        if (!mode.integrated() || !settings.notificationsAllowed()) return null;
+        Path file = directory.resolve(id + ".json");
+        if (!Files.exists(file)) return null;
+        var pending = json.readValue(file.toFile(), PendingNotification.class);
+        String cutoff = settings.value("control.notifications-suppressed-before");
+        Instant sendBefore = pending.createdAt().plus(TELEGRAM_WINDOW).minusSeconds(15);
+        if (pending.telegramClaimed() || !clock.instant().isBefore(sendBefore)
+                || (cutoff != null && !cutoff.isBlank() && !pending.createdAt().isAfter(Instant.parse(cutoff))))
+            return null;
+        save(file, new PendingNotification(pending.message(), pending.createdAt(), pending.nextAttempt(),
+                pending.emailFailures(), true));
+        return sendBefore;
+    }
+
     public synchronized java.util.List<Event> pendingForAssistant() throws IOException {
         if (!mode.integrated() || !settings.notificationsAllowed() || !Files.isDirectory(directory)) {
             return java.util.List.of();
@@ -190,6 +199,8 @@ public class NotificationDeliveryService implements NotificationSender {
                     if (cutoff != null && !cutoff.isBlank() && !pending.createdAt().isAfter(Instant.parse(cutoff))) {
                         continue;
                     }
+                    if (pending.telegramClaimed() || !clock.instant().isBefore(pending.createdAt()
+                            .plus(TELEGRAM_WINDOW).minusSeconds(15))) continue;
                     events.add(new Event(id, pending.createdAt(), pending.message().telegramText()));
                     if (events.size() == 10) break;
                 } catch (IllegalArgumentException | tools.jackson.core.JacksonException invalid) {
@@ -225,5 +236,10 @@ public class NotificationDeliveryService implements NotificationSender {
         }
     }
 
-    record PendingNotification(NotificationMessage message, Instant createdAt, Instant nextAttempt, int emailFailures) { }
+    record PendingNotification(NotificationMessage message, Instant createdAt, Instant nextAttempt, int emailFailures,
+                               boolean telegramClaimed) {
+        PendingNotification(NotificationMessage message, Instant createdAt, Instant nextAttempt, int emailFailures) {
+            this(message, createdAt, nextAttempt, emailFailures, false);
+        }
+    }
 }
